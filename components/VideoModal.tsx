@@ -27,6 +27,9 @@ interface VideoModalProps {
   onSubmitComment: (videoId: string, text: string) => Promise<void>;
   onLoadMoreComments: (videoId: string) => Promise<void> | void;
   onEnsureComments: (videoId: string) => Promise<void> | void;
+  initialVolume: number;
+  initialMuted: boolean;
+  onVolumeChange: (volume: number, muted: boolean) => void;
   onClose: () => void;
 }
 
@@ -42,6 +45,9 @@ export default function VideoModal({
   onSubmitComment,
   onLoadMoreComments,
   onEnsureComments,
+  initialVolume,
+  initialMuted,
+  onVolumeChange,
   onClose
 }: VideoModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -68,6 +74,35 @@ export default function VideoModal({
   useEffect(() => {
     onEnsureComments(video.id);
   }, [onEnsureComments, video.id]);
+
+  useEffect(() => {
+    const element = videoRef.current;
+    if (!element) {
+      return;
+    }
+
+    const boundedVolume = Number.isFinite(initialVolume)
+      ? Math.min(1, Math.max(0, initialVolume))
+      : 0.65;
+
+    element.volume = boundedVolume;
+    element.muted = initialMuted;
+
+    const handleVolumeChange = () => {
+      if (!videoRef.current) {
+        return;
+      }
+      onVolumeChange(
+        videoRef.current.volume,
+        videoRef.current.muted
+      );
+    };
+
+    element.addEventListener('volumechange', handleVolumeChange);
+    return () => {
+      element.removeEventListener('volumechange', handleVolumeChange);
+    };
+  }, [initialMuted, initialVolume, onVolumeChange, video.id]);
 
   useEffect(() => {
     if (!videoRef.current) {
@@ -153,7 +188,7 @@ export default function VideoModal({
             autoPlay
             playsInline
             loop
-            muted
+            muted={initialMuted}
             controlsList="nodownload"
             poster=""
           />

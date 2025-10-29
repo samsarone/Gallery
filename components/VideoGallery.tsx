@@ -36,8 +36,8 @@ const MOBILE_BREAKPOINT = 768;
 const DEFAULT_MOBILE_VOLUME = 0.65;
 const MIN_AUDIBLE_VOLUME = 0.02;
 const MOBILE_VOLUME_HIDE_DELAY = 2200;
-const MOBILE_VOLUME_STORAGE_KEY = 'samsar-gallery/mobile-volume';
-const MOBILE_MUTED_STORAGE_KEY = 'samsar-gallery/mobile-muted';
+const VOLUME_STORAGE_KEY = 'samsar-gallery/mobile-volume';
+const MUTED_STORAGE_KEY = 'samsar-gallery/mobile-muted';
 
 const clampVolume = (value: number): number =>
   Math.min(1, Math.max(0, value));
@@ -928,50 +928,80 @@ export default function VideoGallery() {
       return;
     }
 
+    const storages: Storage[] = [];
+
     try {
-      const storage = window.sessionStorage;
-      if (!storage) {
-        return;
+      if ('localStorage' in window && window.localStorage) {
+        storages.push(window.localStorage);
       }
+    } catch {
+      // localStorage might be unavailable (e.g., private browsing). Ignore.
+    }
 
-      const storedVolumeRaw = storage.getItem(MOBILE_VOLUME_STORAGE_KEY);
-      const storedMutedRaw = storage.getItem(MOBILE_MUTED_STORAGE_KEY);
-
-      let restoredVolume: number | null = null;
-      if (storedVolumeRaw !== null) {
-        const parsed = Number.parseFloat(storedVolumeRaw);
-        if (Number.isFinite(parsed)) {
-          restoredVolume = clampVolume(parsed);
-        }
-      }
-
-      let restoredMuted: boolean | null = null;
-      if (storedMutedRaw !== null) {
-        if (storedMutedRaw === '1' || storedMutedRaw === 'true') {
-          restoredMuted = true;
-        } else if (storedMutedRaw === '0' || storedMutedRaw === 'false') {
-          restoredMuted = false;
-        }
-      }
-
-      if (restoredVolume !== null) {
-        setMobileVolume(restoredVolume);
-        if (restoredVolume > MIN_AUDIBLE_VOLUME) {
-          lastAudibleVolumeRef.current = restoredVolume;
-        }
-      }
-
-      const effectiveMuted =
-        restoredMuted ??
-        (restoredVolume !== null
-          ? restoredVolume <= MIN_AUDIBLE_VOLUME
-          : null);
-
-      if (effectiveMuted !== null) {
-        setMobileMuted(effectiveMuted);
+    try {
+      if ('sessionStorage' in window && window.sessionStorage) {
+        storages.push(window.sessionStorage);
       }
     } catch {
       // sessionStorage might be unavailable (e.g., private browsing). Ignore.
+    }
+
+    if (storages.length === 0) {
+      return;
+    }
+
+    let storedVolumeRaw: string | null = null;
+    let storedMutedRaw: string | null = null;
+
+    for (const storage of storages) {
+      if (storedVolumeRaw === null) {
+        try {
+          storedVolumeRaw = storage.getItem(VOLUME_STORAGE_KEY);
+        } catch {
+          storedVolumeRaw = null;
+        }
+      }
+      if (storedMutedRaw === null) {
+        try {
+          storedMutedRaw = storage.getItem(MUTED_STORAGE_KEY);
+        } catch {
+          storedMutedRaw = null;
+        }
+      }
+    }
+
+    let restoredVolume: number | null = null;
+    if (storedVolumeRaw !== null) {
+      const parsed = Number.parseFloat(storedVolumeRaw);
+      if (Number.isFinite(parsed)) {
+        restoredVolume = clampVolume(parsed);
+      }
+    }
+
+    let restoredMuted: boolean | null = null;
+    if (storedMutedRaw !== null) {
+      if (storedMutedRaw === '1' || storedMutedRaw === 'true') {
+        restoredMuted = true;
+      } else if (storedMutedRaw === '0' || storedMutedRaw === 'false') {
+        restoredMuted = false;
+      }
+    }
+
+    if (restoredVolume !== null) {
+      setMobileVolume(restoredVolume);
+      if (restoredVolume > MIN_AUDIBLE_VOLUME) {
+        lastAudibleVolumeRef.current = restoredVolume;
+      }
+    }
+
+    const effectiveMuted =
+      restoredMuted ??
+      (restoredVolume !== null
+        ? restoredVolume <= MIN_AUDIBLE_VOLUME
+        : null);
+
+    if (effectiveMuted !== null) {
+      setMobileMuted(effectiveMuted);
     }
   }, []);
 
@@ -1064,24 +1094,58 @@ export default function VideoGallery() {
       return;
     }
 
-    try {
-      const storage = window.sessionStorage;
-      if (!storage) {
-        return;
-      }
+    const storages: Storage[] = [];
 
-      storage.setItem(
-        MOBILE_VOLUME_STORAGE_KEY,
-        String(mobileVolume)
-      );
-      storage.setItem(
-        MOBILE_MUTED_STORAGE_KEY,
-        mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME ? '1' : '0'
-      );
+    try {
+      if ('localStorage' in window && window.localStorage) {
+        storages.push(window.localStorage);
+      }
+    } catch {
+      // localStorage might be unavailable (e.g., private browsing). Ignore.
+    }
+
+    try {
+      if ('sessionStorage' in window && window.sessionStorage) {
+        storages.push(window.sessionStorage);
+      }
     } catch {
       // sessionStorage might be unavailable (e.g., private browsing). Ignore.
     }
+
+    if (storages.length === 0) {
+      return;
+    }
+
+    const volumeValue = String(mobileVolume);
+    const mutedValue =
+      mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME ? '1' : '0';
+
+    storages.forEach((storage) => {
+      try {
+        storage.setItem(VOLUME_STORAGE_KEY, volumeValue);
+        storage.setItem(MUTED_STORAGE_KEY, mutedValue);
+      } catch {
+        // Storage writes might fail (e.g., quota exceeded). Ignore.
+      }
+    });
   }, [mobileMuted, mobileVolume]);
+
+  const handleModalVolumeChange = useCallback(
+    (volume: number, muted: boolean) => {
+      const clamped = clampVolume(volume);
+
+      if (muted) {
+        if (clamped > MIN_AUDIBLE_VOLUME) {
+          lastAudibleVolumeRef.current = clamped;
+        }
+        commitMobileVolume(0);
+        return;
+      }
+
+      commitMobileVolume(clamped);
+    },
+    [commitMobileVolume]
+  );
 
   const updateVolumeFromTrack = useCallback(
     (track: HTMLDivElement, clientY: number) => {
@@ -1204,6 +1268,40 @@ export default function VideoGallery() {
       }
     },
     [isMobile, mobileMuted, mobileVolume]
+  );
+
+  const handleMobileVideoClick = useCallback(
+    (index: number) => {
+      if (!isMobile || index !== activeFeedIndex) {
+        return;
+      }
+
+      const muted = mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
+      if (!muted) {
+        return;
+      }
+
+      const fallbackVolume =
+        mobileVolume > MIN_AUDIBLE_VOLUME
+          ? mobileVolume
+          : lastAudibleVolumeRef.current;
+      const targetVolume = clampVolume(
+        fallbackVolume && fallbackVolume > MIN_AUDIBLE_VOLUME
+          ? fallbackVolume
+          : DEFAULT_MOBILE_VOLUME
+      );
+
+      commitMobileVolume(targetVolume);
+      revealVolumeOverlay();
+    },
+    [
+      activeFeedIndex,
+      commitMobileVolume,
+      isMobile,
+      mobileMuted,
+      mobileVolume,
+      revealVolumeOverlay
+    ]
   );
 
   const handleVolumeKeyDown = useCallback(
@@ -2186,6 +2284,13 @@ export default function VideoGallery() {
 
   const isVolumeEffectivelyMuted =
     mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
+  const preferredModalVolume = clampVolume(
+    isVolumeEffectivelyMuted && mobileVolume <= MIN_AUDIBLE_VOLUME
+      ? lastAudibleVolumeRef.current > MIN_AUDIBLE_VOLUME
+        ? lastAudibleVolumeRef.current
+        : DEFAULT_MOBILE_VOLUME
+      : mobileVolume
+  );
   const volumePercent = Math.round(mobileVolume * 100);
   const volumeValueText = isVolumeEffectivelyMuted
     ? 'Muted'
@@ -2224,6 +2329,7 @@ export default function VideoGallery() {
             playsInline
             muted={shouldMuteVideo}
             onLoadedMetadata={handleMobileVideoLoadedMetadata}
+            onClick={() => handleMobileVideoClick(index)}
             preload="metadata"
           />
           <div className="mobile-feed__overlay">
@@ -2401,6 +2507,9 @@ export default function VideoGallery() {
           onSubmitComment={submitComment}
           onLoadMoreComments={loadMoreComments}
           onEnsureComments={ensureCommentsLoaded}
+          initialVolume={preferredModalVolume}
+          initialMuted={isVolumeEffectivelyMuted}
+          onVolumeChange={handleModalVolumeChange}
           onClose={() => setSelectedVideoId(null)}
         />
       )}
