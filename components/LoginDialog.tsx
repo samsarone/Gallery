@@ -147,7 +147,6 @@ export default function LoginDialog({
       headers: {
         'Content-Type': 'application/json'
       },
-      credentials: 'include',
       body: JSON.stringify({ email: loginEmail, password: loginPassword })
     });
 
@@ -204,7 +203,6 @@ export default function LoginDialog({
       headers: {
         'Content-Type': 'application/json'
       },
-      credentials: 'include',
       body: JSON.stringify({ username, email, password })
     });
 

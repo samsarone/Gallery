@@ -220,7 +220,6 @@ export default function TopNav() {
 
       const response = await fetch(url.toString(), {
         method: 'GET',
-        credentials: 'include',
         cache: 'no-store'
       });
 
