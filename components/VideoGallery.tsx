@@ -1,57 +1,429 @@
+/* eslint-disable jsx-a11y/media-has-caption */
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { PublishedVideo } from '@/lib/types';
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react';
+import type {
+  PublishedVideo,
+  VideoComment,
+  VideoCommentState,
+  VideoStats
+} from '@/lib/types';
 import VideoModal from './VideoModal';
+import VideoOverlayContent from './VideoOverlayContent';
 
 type PublishedVideoPayload = Partial<PublishedVideo> & Record<string, unknown>;
 
-const PAGE_SIZE = 24;
+interface InteractionState {
+  liking: boolean;
+  sharing: boolean;
+}
 
-const normalizeVideo = (payload: PublishedVideoPayload): PublishedVideo | null => {
-  if (!payload) {
+const PAGE_SIZE = 24;
+const MOBILE_BREAKPOINT = 768;
+
+const DEFAULT_INTERACTION_STATE: InteractionState = Object.freeze({
+  liking: false,
+  sharing: false
+});
+
+const createInitialCommentState = (): VideoCommentState => ({
+  items: [],
+  nextCursor: null,
+  hasMore: false,
+  isLoading: false,
+  isPosting: false,
+  error: null
+});
+
+const normalizeVideo = (payload: unknown): PublishedVideo | null => {
+  if (!payload || typeof payload !== 'object') {
     return null;
   }
 
-  const videoUrl = typeof payload.videoUrl === 'string' ? payload.videoUrl : '';
-  const title =
-    typeof payload.title === 'string' && payload.title.trim().length > 0
-      ? payload.title.trim()
-      : 'Untitled Video';
-  const description = typeof payload.description === 'string' ? payload.description.trim() : '';
+  const record = payload as PublishedVideoPayload;
+  const recordMap = payload as Record<string, unknown>;
+  const id =
+    typeof record.id === 'string' && record.id
+      ? record.id
+      : typeof recordMap._id === 'string' && recordMap._id
+      ? (recordMap._id as string)
+      : null;
+  const videoUrl =
+    typeof record.videoUrl === 'string' ? record.videoUrl.trim() : '';
 
-  const originalPrompt =
-    typeof payload.originalPrompt === 'string' ? payload.originalPrompt.trim() : '';
-
-  if (!videoUrl) {
+  if (!id || !videoUrl) {
     return null;
+  }
+
+  const statsSource = (record.stats ?? {}) as Record<string, unknown>;
+  const stats: VideoStats = {
+    likes: Number(statsSource.likes ?? 0) || 0,
+    comments: Number(statsSource.comments ?? 0) || 0,
+    shares: Number(statsSource.shares ?? 0) || 0
+  };
+
+  const tagsSource = record.tags;
+  const tags =
+    Array.isArray(tagsSource)
+      ? tagsSource
+          .filter((tag) => typeof tag === 'string')
+          .map((tag) => tag.trim())
+          .filter(Boolean)
+      : undefined;
+
+  const createdAtRaw = record.createdAt;
+  const createdAt =
+    typeof createdAtRaw === 'string'
+      ? createdAtRaw
+      : createdAtRaw instanceof Date
+      ? createdAtRaw.toISOString()
+      : createdAtRaw
+      ? new Date(createdAtRaw as string | number | Date).toISOString()
+      : null;
+
+  const createdByRaw = record.createdBy;
+  let createdBy: string | null = null;
+  if (typeof createdByRaw === 'string') {
+    createdBy = createdByRaw;
+  } else if (
+    createdByRaw &&
+    typeof createdByRaw === 'object' &&
+    'toString' in createdByRaw &&
+    typeof (createdByRaw as { toString: () => string }).toString === 'function'
+  ) {
+    createdBy = (createdByRaw as { toString: () => string }).toString();
   }
 
   return {
+    id,
     videoUrl,
-    title,
-    description,
-    originalPrompt: originalPrompt || undefined
+    title:
+      typeof record.title === 'string' && record.title.trim().length > 0
+        ? record.title.trim()
+        : 'Untitled Video',
+    description:
+      typeof record.description === 'string' ? record.description.trim() : '',
+    originalPrompt:
+      typeof record.originalPrompt === 'string'
+        ? record.originalPrompt.trim()
+        : undefined,
+    tags,
+    creatorHandle:
+      typeof record.creatorHandle === 'string'
+        ? record.creatorHandle.trim()
+        : undefined,
+    createdBy,
+    sessionId:
+      typeof record.sessionId === 'string' ? record.sessionId : null,
+    createdAt,
+    stats,
+    viewerHasLiked: Boolean(record.viewerHasLiked)
   };
 };
 
-const mergeVideos = (existing: PublishedVideo[], incoming: PublishedVideo[]) => {
-  const seen = new Set(existing.map((video) => video.videoUrl));
-  const merged = [...existing];
+const normalizeComment = (payload: unknown): VideoComment | null => {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const id =
+    typeof record.id === 'string' && record.id
+      ? record.id
+      : typeof record._id === 'string' && record._id
+      ? (record._id as string)
+      : '';
+
+  const text =
+    typeof record.text === 'string' ? record.text.trim() : '';
+
+  if (!id || !text) {
+    return null;
+  }
+
+  const createdAtRaw = record.createdAt;
+  const createdAt =
+    typeof createdAtRaw === 'string'
+      ? createdAtRaw
+      : createdAtRaw instanceof Date
+      ? createdAtRaw.toISOString()
+      : createdAtRaw
+      ? new Date(createdAtRaw as string | number | Date).toISOString()
+      : new Date().toISOString();
+
+  const creatorHandle =
+    typeof record.creatorHandle === 'string' &&
+    record.creatorHandle.trim().length > 0
+      ? record.creatorHandle.trim()
+      : 'User';
+
+  const createdByRaw = record.createdBy;
+  const createdBy =
+    typeof createdByRaw === 'string'
+      ? createdByRaw
+      : createdByRaw &&
+        typeof createdByRaw === 'object' &&
+        'toString' in createdByRaw &&
+        typeof (createdByRaw as { toString: () => string }).toString ===
+          'function'
+      ? (createdByRaw as { toString: () => string }).toString()
+      : '';
+
+  const likesRecord = record.likes;
+  const likes =
+    typeof likesRecord === 'number'
+      ? likesRecord
+      : typeof (likesRecord as Record<string, unknown>)?.count === 'number'
+      ? ((likesRecord as Record<string, number>).count ?? 0)
+      : 0;
+
+  return {
+    id,
+    text,
+    creatorHandle,
+    createdBy,
+    createdAt,
+    likes: Number(likes) || 0
+  };
+};
+
+const mergeVideos = (
+  existing: PublishedVideo[],
+  incoming: PublishedVideo[]
+) => {
+  if (existing.length === 0) {
+    return incoming;
+  }
+
+  const map = new Map(existing.map((video) => [video.id, video]));
+  const result = [...existing];
 
   incoming.forEach((video) => {
-    if (!seen.has(video.videoUrl)) {
-      seen.add(video.videoUrl);
-      merged.push(video);
+    const index = result.findIndex((item) => item.id === video.id);
+    if (index === -1) {
+      result.push(video);
+      map.set(video.id, video);
+    } else {
+      result[index] = {
+        ...result[index],
+        ...video,
+        stats: video.stats,
+        viewerHasLiked: video.viewerHasLiked
+      };
     }
   });
 
-  return merged;
+  return result;
 };
+
+const dispatchAuthModal = (view: 'login' | 'register' = 'login') => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent('samsar:open-auth', { detail: { view } })
+  );
+};
+
+const getShareUrl = (video: PublishedVideo) => {
+  if (video.videoUrl) {
+    return video.videoUrl;
+  }
+
+  if (typeof window !== 'undefined') {
+    const url = new URL(window.location.href);
+    url.searchParams.set('videoId', video.id);
+    return url.toString();
+  }
+
+  return '';
+};
+
+interface CommentDrawerProps {
+  video: PublishedVideo;
+  state: VideoCommentState;
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (videoId: string, text: string) => Promise<void>;
+  onLoadMore: (videoId: string) => Promise<void> | void;
+}
+
+function CommentDrawer({
+  video,
+  state,
+  open,
+  onClose,
+  onSubmit,
+  onLoadMore
+}: CommentDrawerProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [text, setText] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setText('');
+      setError(null);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      inputRef.current?.focus();
+    }, 160);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [open, video.id]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [open, onClose]);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmed = text.trim();
+    if (!trimmed) {
+      setError('Please enter a comment before sending.');
+      return;
+    }
+
+    try {
+      setError(null);
+      await onSubmit(video.id, trimmed);
+      setText('');
+    } catch (submissionError) {
+      const message =
+        submissionError instanceof Error
+          ? submissionError.message
+          : 'Unable to post your comment.';
+      setError(message);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (!state.hasMore || state.isLoading) {
+      return;
+    }
+    void onLoadMore(video.id);
+  };
+
+  return (
+    <div className={`comment-drawer${open ? ' comment-drawer--open' : ''}`}>
+      <div className="comment-drawer__backdrop" onClick={onClose} />
+      <div className="comment-drawer__panel" role="dialog" aria-modal="true">
+        <header className="comment-drawer__header">
+          <h3>Comments</h3>
+          <button
+            type="button"
+            className="comment-drawer__close"
+            onClick={onClose}
+            aria-label="Close comments"
+          >
+            ×
+          </button>
+        </header>
+
+        {state.error && (
+          <p className="comment-drawer__error" role="alert">
+            {state.error}
+          </p>
+        )}
+
+        <div className="comment-drawer__list">
+          {state.items.map((comment) => (
+            <article className="comment-drawer__item" key={comment.id}>
+              <div className="comment-drawer__meta">
+                <span className="comment-drawer__author">
+                  {comment.creatorHandle}
+                </span>
+                <time dateTime={comment.createdAt}>
+                  {new Date(comment.createdAt).toLocaleString()}
+                </time>
+              </div>
+              <p className="comment-drawer__text">{comment.text}</p>
+            </article>
+          ))}
+
+          {state.isLoading && (
+            <div className="comment-drawer__loader">Loading comments…</div>
+          )}
+
+          {state.hasMore && !state.isLoading && (
+            <button
+              type="button"
+              className="comment-drawer__load-more"
+              onClick={handleLoadMore}
+            >
+              Load more
+            </button>
+          )}
+
+          {!state.isLoading && state.items.length === 0 && (
+            <p className="comment-drawer__empty">
+              Be the first to leave a comment.
+            </p>
+          )}
+        </div>
+
+        <form className="comment-drawer__form" onSubmit={handleSubmit}>
+          <label htmlFor="drawer-comment-input" className="sr-only">
+            Add a comment
+          </label>
+          <input
+            id="drawer-comment-input"
+            ref={inputRef}
+            type="text"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            placeholder="Add a comment…"
+            disabled={state.isPosting}
+          />
+          <button
+            type="submit"
+            disabled={state.isPosting || text.trim().length === 0}
+          >
+            {state.isPosting ? 'Posting…' : 'Post'}
+          </button>
+        </form>
+
+        {error && (
+          <p className="comment-drawer__error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function VideoGallery() {
   const [videos, setVideos] = useState<PublishedVideo[]>([]);
-  const [selectedVideo, setSelectedVideo] = useState<PublishedVideo | null>(null);
+  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
+  const [commentPanelVideoId, setCommentPanelVideoId] = useState<string | null>(
+    null
+  );
+  const [isMobile, setIsMobile] = useState<boolean>(false);
+  const [activeFeedIndex, setActiveFeedIndex] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isFetchingMore, setIsFetchingMore] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,21 +432,52 @@ export default function VideoGallery() {
   const [hasMore, setHasMore] = useState<boolean>(true);
   const [supportsIntersectionObserver, setSupportsIntersectionObserver] =
     useState<boolean>(true);
+  const [commentsMap, setCommentsMap] = useState<
+    Record<string, VideoCommentState>
+  >({});
+  const [interactionMap, setInteractionMap] = useState<
+    Record<string, InteractionState>
+  >({});
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const feedItemRefs = useRef<(HTMLDivElement | null)[]>([]);
   const isMountedRef = useRef<boolean>(false);
   const pendingCursorRef = useRef<string | null>(null);
+  const authNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    isMountedRef.current = true;
-    if (typeof window !== 'undefined' && !('IntersectionObserver' in window)) {
-      setSupportsIntersectionObserver(false);
-    }
-
-    return () => {
-      isMountedRef.current = false;
-    };
+  const promptLogin = useCallback((message: string) => {
+    setAuthNotice(message);
+    dispatchAuthModal('login');
   }, []);
+
+  const updateInteractionState = useCallback(
+    (videoId: string, patch: Partial<InteractionState>) => {
+      setInteractionMap((previous) => {
+        const base = previous[videoId] ?? DEFAULT_INTERACTION_STATE;
+        return {
+          ...previous,
+          [videoId]: { ...base, ...patch }
+        };
+      });
+    },
+    []
+  );
+
+  const updateVideo = useCallback(
+    (videoId: string, updater: (video: PublishedVideo) => PublishedVideo) => {
+      setVideos((previous) =>
+        previous.map((video) =>
+          video.id === videoId ? updater(video) : video
+        )
+      );
+    },
+    []
+  );
 
   const fetchVideos = useCallback(
     async (cursor?: string | null) => {
@@ -107,11 +510,13 @@ export default function VideoGallery() {
         });
 
         if (!response.ok) {
-          throw new Error(`Failed to load videos (${response.status})`);
+          throw new Error(
+            `Failed to load videos (${response.status})`
+          );
         }
 
         const payload = await response.json();
-        const rawItems: PublishedVideoPayload[] = Array.isArray(payload?.items)
+        const rawItems = Array.isArray(payload?.items)
           ? payload.items
           : Array.isArray(payload?.data)
           ? payload.data
@@ -121,9 +526,14 @@ export default function VideoGallery() {
 
         const normalized = rawItems
           .map((item) => normalizeVideo(item))
-          .filter((item: PublishedVideo | null): item is PublishedVideo => Boolean(item));
+          .filter(
+            (item: PublishedVideo | null): item is PublishedVideo =>
+              Boolean(item)
+          );
 
-        setVideos((previous) => (loadMore ? mergeVideos(previous, normalized) : normalized));
+        setVideos((previous) =>
+          loadMore ? mergeVideos(previous, normalized) : normalized
+        );
 
         const rawNextCursor =
           payload?.nextCursor ??
@@ -133,7 +543,10 @@ export default function VideoGallery() {
           payload?.pagination?.cursor ??
           null;
 
-        const newCursor = rawNextCursor != null ? String(rawNextCursor) : null;
+        const newCursor =
+          rawNextCursor != null && String(rawNextCursor).length > 0
+            ? String(rawNextCursor)
+            : null;
         setNextCursor(newCursor);
 
         const moreAvailable =
@@ -152,11 +565,17 @@ export default function VideoGallery() {
 
         if (cursor) {
           setLoadMoreError(
-            fetchError instanceof Error ? fetchError.message : 'Failed to load more videos'
+            fetchError instanceof Error
+              ? fetchError.message
+              : 'Failed to load more videos'
           );
           setHasMore(false);
         } else {
-          setError(fetchError instanceof Error ? fetchError.message : 'Failed to load videos');
+          setError(
+            fetchError instanceof Error
+              ? fetchError.message
+              : 'Failed to load videos'
+          );
           setVideos([]);
           setHasMore(false);
         }
@@ -175,9 +594,520 @@ export default function VideoGallery() {
     []
   );
 
+  const ensureCommentsLoaded = useCallback(
+    async (videoId: string) => {
+      let shouldRequest = false;
+
+      setCommentsMap((previous) => {
+        const current =
+          previous[videoId] ?? createInitialCommentState();
+        if (current.items.length === 0 && !current.isLoading) {
+          shouldRequest = true;
+          return {
+            ...previous,
+            [videoId]: {
+              ...current,
+              isLoading: true,
+              error: null
+            }
+          };
+        }
+
+        return previous;
+      });
+
+      if (!shouldRequest) {
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/api/videos/${videoId}/comments?limit=20`,
+          {
+            method: 'GET',
+            cache: 'no-store'
+          }
+        );
+
+        if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Failed to load comments.');
+        }
+
+        const payload = await response.json();
+        const rawItems = Array.isArray(payload?.items)
+          ? payload.items
+          : Array.isArray(payload)
+          ? payload
+          : [];
+        const normalized = rawItems
+          .map((item) => normalizeComment(item))
+          .filter(
+            (item: VideoComment | null): item is VideoComment =>
+              Boolean(item)
+          );
+
+        const next =
+          typeof payload?.nextCursor === 'string' &&
+          payload.nextCursor.length > 0
+            ? payload.nextCursor
+            : null;
+        const more =
+          typeof payload?.hasMore === 'boolean'
+            ? payload.hasMore
+            : Boolean(next);
+
+        setCommentsMap((previous) => ({
+          ...previous,
+          [videoId]: {
+            ...(previous[videoId] ?? createInitialCommentState()),
+            items: normalized,
+            nextCursor: next,
+            hasMore: more,
+            isLoading: false,
+            error: null,
+            isPosting:
+              previous[videoId]?.isPosting ?? false
+          }
+        }));
+      } catch (loadError) {
+        const message =
+          loadError instanceof Error
+            ? loadError.message
+            : 'Failed to load comments.';
+        setCommentsMap((previous) => ({
+          ...previous,
+          [videoId]: {
+            ...(previous[videoId] ?? createInitialCommentState()),
+            isLoading: false,
+            error: message
+          }
+        }));
+      }
+    },
+    []
+  );
+
+  const loadMoreComments = useCallback(
+    async (videoId: string) => {
+      const current = commentsMap[videoId] ?? createInitialCommentState();
+      if (!current.hasMore || current.isLoading) {
+        return;
+      }
+
+      setCommentsMap((previous) => ({
+        ...previous,
+        [videoId]: {
+          ...(previous[videoId] ?? createInitialCommentState()),
+          isLoading: true,
+          error: null
+        }
+      }));
+
+      try {
+        const params = new URLSearchParams({ limit: '20' });
+        if (current.nextCursor) {
+          params.set('cursor', current.nextCursor);
+        }
+
+        const response = await fetch(
+          `/api/videos/${videoId}/comments?${params.toString()}`,
+          {
+            method: 'GET',
+            cache: 'no-store'
+          }
+        );
+
+        if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Failed to load comments.');
+        }
+
+        const payload = await response.json();
+        const rawItems = Array.isArray(payload?.items)
+          ? payload.items
+          : Array.isArray(payload)
+          ? payload
+          : [];
+        const normalized = rawItems
+          .map((item) => normalizeComment(item))
+          .filter(
+            (item: VideoComment | null): item is VideoComment =>
+              Boolean(item)
+          );
+
+        const next =
+          typeof payload?.nextCursor === 'string' &&
+          payload.nextCursor.length > 0
+            ? payload.nextCursor
+            : null;
+        const more =
+          typeof payload?.hasMore === 'boolean'
+            ? payload.hasMore
+            : Boolean(next);
+
+        setCommentsMap((previous) => {
+          const state =
+            previous[videoId] ?? createInitialCommentState();
+          return {
+            ...previous,
+            [videoId]: {
+              ...state,
+              items: [...state.items, ...normalized],
+              nextCursor: next,
+              hasMore: more,
+              isLoading: false,
+              error: null
+            }
+          };
+        });
+      } catch (loadError) {
+        const message =
+          loadError instanceof Error
+            ? loadError.message
+            : 'Failed to load comments.';
+        setCommentsMap((previous) => ({
+          ...previous,
+          [videoId]: {
+            ...(previous[videoId] ?? createInitialCommentState()),
+            isLoading: false,
+            error: message
+          }
+        }));
+      }
+    },
+    [commentsMap]
+  );
+
+  const submitComment = useCallback(
+    async (videoId: string, text: string) => {
+      setCommentsMap((previous) => ({
+        ...previous,
+        [videoId]: {
+          ...(previous[videoId] ?? createInitialCommentState()),
+          isPosting: true,
+          error: null
+        }
+      }));
+
+      try {
+        const response = await fetch(
+          `/api/videos/${videoId}/comments`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            cache: 'no-store',
+            body: JSON.stringify({ text })
+          }
+        );
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            promptLogin('Log in to leave a comment.');
+          }
+          const message = await response.text();
+          throw new Error(message || 'Failed to post comment.');
+        }
+
+        const payload = await response.json();
+        const newComment = normalizeComment(payload?.comment);
+        if (!newComment) {
+          throw new Error('Invalid comment response.');
+        }
+
+        const statsPayload = payload?.stats as Partial<VideoStats> | undefined;
+
+        setCommentsMap((previous) => {
+          const state =
+            previous[videoId] ?? createInitialCommentState();
+          return {
+            ...previous,
+            [videoId]: {
+              ...state,
+              items: [newComment, ...state.items],
+              isPosting: false,
+              error: null
+            }
+          };
+        });
+
+        updateVideo(videoId, (previous) => ({
+          ...previous,
+          stats: {
+            likes:
+              typeof statsPayload?.likes === 'number'
+                ? statsPayload.likes
+                : previous.stats.likes,
+            comments:
+              typeof statsPayload?.comments === 'number'
+                ? statsPayload.comments
+                : previous.stats.comments + 1,
+            shares:
+              typeof statsPayload?.shares === 'number'
+                ? statsPayload.shares
+                : previous.stats.shares
+          }
+        }));
+      } catch (submitError) {
+        const message =
+          submitError instanceof Error
+            ? submitError.message
+            : 'Failed to post comment.';
+        setCommentsMap((previous) => ({
+          ...previous,
+          [videoId]: {
+            ...(previous[videoId] ?? createInitialCommentState()),
+            isPosting: false,
+            error: message
+          }
+        }));
+
+        throw new Error(message);
+      }
+    },
+    [promptLogin, updateVideo]
+  );
+
+  const toggleLike = useCallback(
+    async (videoId: string) => {
+      const target = videos.find((video) => video.id === videoId);
+      if (!target) {
+        return;
+      }
+
+      updateInteractionState(videoId, { liking: true });
+
+      const optimisticLiked = !target.viewerHasLiked;
+      const optimisticLikes = Math.max(
+        0,
+        target.stats.likes + (optimisticLiked ? 1 : -1)
+      );
+
+      updateVideo(videoId, (previous) => ({
+        ...previous,
+        viewerHasLiked: optimisticLiked,
+        stats: {
+          ...previous.stats,
+          likes: optimisticLikes
+        }
+      }));
+
+      let unauthorized = false;
+
+      try {
+        const response = await fetch(
+          `/api/videos/${videoId}/like`,
+          {
+            method: 'POST',
+            cache: 'no-store'
+          }
+        );
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            unauthorized = true;
+            promptLogin('Log in to like videos.');
+          }
+          const message = await response.text();
+          throw new Error(message || 'Failed to update like.');
+        }
+
+        const payload = await response.json();
+        const liked =
+          typeof payload?.liked === 'boolean'
+            ? payload.liked
+            : optimisticLiked;
+        const statsPayload = payload?.stats as Partial<VideoStats> | undefined;
+
+        updateVideo(videoId, (previous) => ({
+          ...previous,
+          viewerHasLiked: liked,
+          stats: {
+            likes:
+              typeof statsPayload?.likes === 'number'
+                ? statsPayload.likes
+                : previous.stats.likes,
+            comments:
+              typeof statsPayload?.comments === 'number'
+                ? statsPayload.comments
+                : previous.stats.comments,
+            shares:
+              typeof statsPayload?.shares === 'number'
+                ? statsPayload.shares
+                : previous.stats.shares
+          }
+        }));
+      } catch (likeError) {
+        updateVideo(videoId, () => ({ ...target }));
+
+        if (!unauthorized) {
+          const message =
+            likeError instanceof Error
+              ? likeError.message
+              : 'Failed to update like.';
+          setAuthNotice(message);
+        }
+      } finally {
+        updateInteractionState(videoId, { liking: false });
+      }
+    },
+    [promptLogin, updateInteractionState, updateVideo, videos]
+  );
+
+  const shareVideo = useCallback(
+    async (video: PublishedVideo) => {
+      updateInteractionState(video.id, { sharing: true });
+
+      const shareUrl = getShareUrl(video);
+      let shared = false;
+      let unauthorized = false;
+
+      try {
+        if (typeof navigator !== 'undefined' && navigator.share) {
+          try {
+            await navigator.share({
+              title: video.title,
+              url: shareUrl
+            });
+            shared = true;
+          } catch (shareError) {
+            if (
+              shareError instanceof Error &&
+              (shareError.name === 'AbortError' ||
+                shareError.message === 'Share canceled')
+            ) {
+              return;
+            }
+            throw shareError;
+          }
+        } else if (
+          typeof navigator !== 'undefined' &&
+          navigator.clipboard
+        ) {
+          await navigator.clipboard.writeText(shareUrl);
+          setToast('Link copied to clipboard.');
+          shared = true;
+        } else {
+          setToast(`Share link: ${shareUrl}`);
+          shared = true;
+        }
+
+        if (!shared) {
+          return;
+        }
+
+        const response = await fetch(
+          `/api/videos/${video.id}/share`,
+          {
+            method: 'POST',
+            cache: 'no-store'
+          }
+        );
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            unauthorized = true;
+            promptLogin('Log in to share videos.');
+          }
+          const message = await response.text();
+          throw new Error(message || 'Failed to record share.');
+        }
+
+        const payload = await response.json();
+        const statsPayload = payload?.stats as Partial<VideoStats> | undefined;
+
+        updateVideo(video.id, (previous) => ({
+          ...previous,
+          stats: {
+            likes:
+              typeof statsPayload?.likes === 'number'
+                ? statsPayload.likes
+                : previous.stats.likes,
+            comments:
+              typeof statsPayload?.comments === 'number'
+                ? statsPayload.comments
+                : previous.stats.comments,
+            shares:
+              typeof statsPayload?.shares === 'number'
+                ? statsPayload.shares
+                : previous.stats.shares + 1
+          }
+        }));
+      } catch (shareError) {
+        if (!shared || !unauthorized) {
+          const message =
+            shareError instanceof Error
+              ? shareError.message
+              : 'Failed to record share.';
+          setAuthNotice(message);
+        }
+      } finally {
+        updateInteractionState(video.id, { sharing: false });
+      }
+    },
+    [promptLogin, updateInteractionState, updateVideo]
+  );
+
+  const handleRetryInitial = () => {
+    fetchVideos();
+  };
+
+  const handleRetryLoadMore = () => {
+    const cursor = pendingCursorRef.current ?? nextCursor;
+    if (!cursor) {
+      return;
+    }
+
+    setHasMore(true);
+    fetchVideos(cursor);
+  };
+
+  const handleManualLoadMore = () => {
+    if (isFetchingMore || isLoading) {
+      return;
+    }
+
+    const cursor = nextCursor;
+    if (!cursor) {
+      return;
+    }
+
+    fetchVideos(cursor);
+  };
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    if (
+      typeof window !== 'undefined' &&
+      !('IntersectionObserver' in window)
+    ) {
+      setSupportsIntersectionObserver(false);
+    }
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     fetchVideos();
   }, [fetchVideos]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const updateBreakpoint = () => {
+      setIsMobile(window.innerWidth <= MOBILE_BREAKPOINT);
+    };
+
+    updateBreakpoint();
+    window.addEventListener('resize', updateBreakpoint);
+    return () => window.removeEventListener('resize', updateBreakpoint);
+  }, []);
 
   useEffect(() => {
     if (!supportsIntersectionObserver) {
@@ -220,47 +1150,218 @@ export default function VideoGallery() {
     return () => {
       observer.disconnect();
     };
-  }, [fetchVideos, hasMore, isFetchingMore, isLoading, nextCursor, supportsIntersectionObserver]);
+  }, [
+    fetchVideos,
+    hasMore,
+    isFetchingMore,
+    isLoading,
+    nextCursor,
+    supportsIntersectionObserver
+  ]);
 
-  const handleRetryInitial = () => {
-    fetchVideos();
-  };
+  useEffect(() => {
+    feedItemRefs.current = feedItemRefs.current.slice(0, videos.length);
 
-  const handleRetryLoadMore = () => {
-    const cursor = pendingCursorRef.current ?? nextCursor;
-    if (!cursor) {
+    if (!isMobile) {
       return;
     }
 
-    setHasMore(true);
-    fetchVideos(cursor);
-  };
-
-  const handleManualLoadMore = () => {
-    if (isFetchingMore || isLoading) {
+    const elements = feedItemRefs.current.filter(
+      (element): element is HTMLDivElement => Boolean(element)
+    );
+    if (elements.length === 0) {
       return;
     }
 
-    const cursor = nextCursor;
-    if (!cursor) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const indexValue = Number(
+              entry.target.getAttribute('data-index')
+            );
+            if (!Number.isNaN(indexValue)) {
+              setActiveFeedIndex(indexValue);
+            }
+          }
+        });
+      },
+      { threshold: 0.6 }
+    );
+
+    elements.forEach((element) => observer.observe(element));
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [isMobile, videos.length]);
+
+  useEffect(() => {
+    if (!isMobile) {
       return;
     }
 
-    fetchVideos(cursor);
-  };
+    feedItemRefs.current.forEach((element, index) => {
+      const videoElement = element?.querySelector('video') as
+        | HTMLVideoElement
+        | null;
+      if (!videoElement) {
+        return;
+      }
 
-  const renderVideos = () =>
+      if (index === activeFeedIndex) {
+        videoElement.muted = true;
+        const play = videoElement.play();
+        if (play && typeof play.catch === 'function') {
+          play.catch(() => {});
+        }
+      } else {
+        videoElement.pause();
+      }
+    });
+  }, [activeFeedIndex, isMobile, videos]);
+
+  useEffect(() => {
+    if (!authNotice) {
+      return;
+    }
+
+    if (authNoticeTimeoutRef.current) {
+      clearTimeout(authNoticeTimeoutRef.current);
+    }
+
+    authNoticeTimeoutRef.current = setTimeout(() => {
+      setAuthNotice(null);
+      authNoticeTimeoutRef.current = null;
+    }, 3200);
+
+    return () => {
+      if (authNoticeTimeoutRef.current) {
+        clearTimeout(authNoticeTimeoutRef.current);
+        authNoticeTimeoutRef.current = null;
+      }
+    };
+  }, [authNotice]);
+
+  useEffect(() => {
+    if (!toast) {
+      return;
+    }
+
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimeoutRef.current = null;
+    }, 2400);
+
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+        toastTimeoutRef.current = null;
+      }
+    };
+  }, [toast]);
+
+  useEffect(
+    () => () => {
+      if (authNoticeTimeoutRef.current) {
+        clearTimeout(authNoticeTimeoutRef.current);
+      }
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (isMobile && selectedVideoId) {
+      setSelectedVideoId(null);
+    }
+  }, [isMobile, selectedVideoId]);
+
+  useEffect(() => {
+    if (!commentPanelVideoId) {
+      return;
+    }
+
+    void ensureCommentsLoaded(commentPanelVideoId);
+  }, [commentPanelVideoId, ensureCommentsLoaded]);
+
+  useEffect(() => {
+    if (!isMobile || typeof document === 'undefined') {
+      return;
+    }
+
+    if (commentPanelVideoId) {
+      document.body.classList.add('no-scroll');
+    } else {
+      document.body.classList.remove('no-scroll');
+    }
+
+    return () => {
+      document.body.classList.remove('no-scroll');
+    };
+  }, [commentPanelVideoId, isMobile]);
+
+  const videoById = useMemo(() => {
+    return new Map(videos.map((video) => [video.id, video]));
+  }, [videos]);
+
+  const selectedVideo = selectedVideoId
+    ? videoById.get(selectedVideoId) ?? null
+    : null;
+
+  const selectedComments =
+    selectedVideo?.id && commentsMap[selectedVideo.id]
+      ? commentsMap[selectedVideo.id]
+      : createInitialCommentState();
+
+  const selectedInteraction =
+    selectedVideo?.id && interactionMap[selectedVideo.id]
+      ? interactionMap[selectedVideo.id]
+      : DEFAULT_INTERACTION_STATE;
+
+  const commentPanelVideo =
+    commentPanelVideoId ? videoById.get(commentPanelVideoId) ?? null : null;
+  const commentPanelState =
+    commentPanelVideoId && commentsMap[commentPanelVideoId]
+      ? commentsMap[commentPanelVideoId]
+      : createInitialCommentState();
+
+  const placeholderItems = useMemo(
+    () =>
+      Array.from({ length: 8 }, (_, index) => (
+        <div
+          className="video-card video-card--placeholder"
+          key={`placeholder-${index}`}
+        >
+          <div className="video-card__media skeleton" />
+          <div className="video-card__content">
+            <div className="skeleton skeleton--text" />
+            <div className="skeleton skeleton--text skeleton--text-short" />
+            <div className="skeleton skeleton--text skeleton--text-faint" />
+          </div>
+        </div>
+      )),
+    []
+  );
+
+  const renderDesktopVideos = () =>
     videos.map((video) => (
       <article
-        key={video.videoUrl}
+        key={video.id}
         className="video-card"
-        onClick={() => setSelectedVideo(video)}
+        onClick={() => setSelectedVideoId(video.id)}
         tabIndex={0}
         role="button"
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            setSelectedVideo(video);
+            setSelectedVideoId(video.id);
           }
         }}
       >
@@ -274,6 +1375,11 @@ export default function VideoGallery() {
             className="video-card__video"
           />
           <div className="video-card__glow" />
+          <div className="video-card__inline-stats">
+            <span>♥ {video.stats.likes.toLocaleString()}</span>
+            <span>💬 {video.stats.comments.toLocaleString()}</span>
+            <span>⤴ {video.stats.shares.toLocaleString()}</span>
+          </div>
         </div>
         <div className="video-card__content">
           <h3 title={video.title}>{video.title}</h3>
@@ -287,20 +1393,76 @@ export default function VideoGallery() {
       </article>
     ));
 
-  const placeholderItems = Array.from({ length: 8 }, (_, index) => (
-    <div className="video-card video-card--placeholder" key={`placeholder-${index}`}>
-      <div className="video-card__media skeleton" />
-      <div className="video-card__content">
-        <div className="skeleton skeleton--text" />
-        <div className="skeleton skeleton--text skeleton--text-short" />
-        <div className="skeleton skeleton--text skeleton--text-faint" />
-      </div>
-    </div>
-  ));
+  const renderMobileFeed = () =>
+    videos.map((video, index) => {
+      const interaction =
+        interactionMap[video.id] ?? DEFAULT_INTERACTION_STATE;
+
+      return (
+        <div
+          key={video.id}
+          className="mobile-feed__item"
+          ref={(element) => {
+            feedItemRefs.current[index] = element;
+          }}
+          data-index={index}
+        >
+          <video
+            src={video.videoUrl}
+            className="mobile-feed__video"
+            loop
+            playsInline
+            muted
+            preload="metadata"
+          />
+          <div className="mobile-feed__overlay">
+            <VideoOverlayContent
+              variant="mobile"
+              title={video.title}
+              description={video.description || undefined}
+            />
+            <div className="mobile-feed__actions">
+              <button
+                type="button"
+                className={`mobile-feed__action${
+                  video.viewerHasLiked ? ' mobile-feed__action--active' : ''
+                }`}
+                onClick={() => toggleLike(video.id)}
+                disabled={interaction.liking}
+              >
+                <span>♥</span>
+                <span>{video.stats.likes.toLocaleString()}</span>
+              </button>
+
+              <button
+                type="button"
+                className="mobile-feed__action"
+                onClick={() => {
+                  setCommentPanelVideoId(video.id);
+                }}
+              >
+                <span>💬</span>
+                <span>{video.stats.comments.toLocaleString()}</span>
+              </button>
+
+              <button
+                type="button"
+                className="mobile-feed__action"
+                onClick={() => shareVideo(video)}
+                disabled={interaction.sharing}
+              >
+                <span>⤴</span>
+                <span>{video.stats.shares.toLocaleString()}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    });
 
   return (
     <>
-      <section className="gallery">
+      <section className={`gallery${isMobile ? ' gallery--mobile' : ''}`}>
         {isLoading && (
           <div className="masonry-grid" aria-hidden="true">
             {placeholderItems}
@@ -323,36 +1485,82 @@ export default function VideoGallery() {
         )}
 
         {!isLoading && !error && videos.length > 0 && (
-          <div className="masonry-grid">{renderVideos()}</div>
+          <>
+            {isMobile ? (
+              <div className="mobile-feed">{renderMobileFeed()}</div>
+            ) : (
+              <div className="masonry-grid">{renderDesktopVideos()}</div>
+            )}
+          </>
         )}
       </section>
 
       <div className="gallery__sentinel" ref={sentinelRef} aria-hidden />
 
-      {(isFetchingMore || loadMoreError || (hasMore && !supportsIntersectionObserver)) && (
+      {(isFetchingMore ||
+        loadMoreError ||
+        (hasMore && !supportsIntersectionObserver)) && (
         <div className="gallery__status">
-          {isFetchingMore && <div className="spinner" aria-label="Loading more videos" />}
+          {isFetchingMore && (
+            <div className="spinner" aria-label="Loading more videos" />
+          )}
 
           {loadMoreError && (
             <div className="gallery__status-message">
               <p>{loadMoreError}</p>
-              <button className="button button--secondary" onClick={handleRetryLoadMore}>
+              <button
+                className="button button--secondary"
+                onClick={handleRetryLoadMore}
+              >
                 Retry loading more
               </button>
             </div>
           )}
 
-          {!isFetchingMore && !loadMoreError && hasMore && !supportsIntersectionObserver && (
-            <button className="button button--secondary" onClick={handleManualLoadMore}>
-              Load more videos
-            </button>
-          )}
+          {!isFetchingMore &&
+            !loadMoreError &&
+            hasMore &&
+            !supportsIntersectionObserver && (
+              <button
+                className="button button--secondary"
+                onClick={handleManualLoadMore}
+              >
+                Load more videos
+              </button>
+            )}
         </div>
       )}
 
-      {selectedVideo && (
-        <VideoModal video={selectedVideo} onClose={() => setSelectedVideo(null)} />
+      {selectedVideo && !isMobile && (
+        <VideoModal
+          video={selectedVideo}
+          stats={selectedVideo.stats}
+          viewerHasLiked={selectedVideo.viewerHasLiked}
+          comments={selectedComments}
+          isLiking={selectedInteraction.liking}
+          isSharing={selectedInteraction.sharing}
+          onToggleLike={toggleLike}
+          onShare={shareVideo}
+          onSubmitComment={submitComment}
+          onLoadMoreComments={loadMoreComments}
+          onEnsureComments={ensureCommentsLoaded}
+          onClose={() => setSelectedVideoId(null)}
+        />
       )}
+
+      {isMobile && commentPanelVideo && (
+        <CommentDrawer
+          video={commentPanelVideo}
+          state={commentPanelState}
+          open={Boolean(commentPanelVideoId)}
+          onClose={() => setCommentPanelVideoId(null)}
+          onSubmit={submitComment}
+          onLoadMore={loadMoreComments}
+        />
+      )}
+
+      {authNotice && <div className="toast toast--auth">{authNotice}</div>}
+      {toast && <div className="toast">{toast}</div>}
     </>
   );
 }

@@ -150,11 +150,11 @@ export default function TopNav() {
     }
   };
 
-  const handleOpenDialog = (view: 'login' | 'register' = 'login') => {
+  const handleOpenDialog = useCallback((view: 'login' | 'register' = 'login') => {
     setDialogView(view);
     setAuthError(null);
     setIsDialogOpen(true);
-  };
+  }, []);
 
   const handleCloseDialog = () => {
     setIsDialogOpen(false);
@@ -246,6 +246,32 @@ export default function TopNav() {
       setIsGoogleLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handler = (event: Event) => {
+      if (!(event instanceof CustomEvent)) {
+        handleOpenDialog('login');
+        return;
+      }
+
+      const detail = event.detail as { view?: 'login' | 'register' } | undefined;
+      const requestedView =
+        detail?.view === 'register' || detail?.view === 'login'
+          ? detail.view
+          : 'login';
+
+      handleOpenDialog(requestedView);
+    };
+
+    window.addEventListener('samsar:open-auth', handler);
+    return () => {
+      window.removeEventListener('samsar:open-auth', handler);
+    };
+  }, [handleOpenDialog]);
 
   return (
     <>
