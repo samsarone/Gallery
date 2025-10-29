@@ -203,7 +203,7 @@ export default function TopNav() {
       return;
     }
 
-    const apiBase = process.env.NEXT_PUBLIC_PROCESSOR_API;
+    const apiBase = process.env.API_SERVER;
     if (!apiBase) {
       setAuthError('Google sign-in is unavailable. Please try again later.');
       return;

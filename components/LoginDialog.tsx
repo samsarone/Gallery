@@ -88,7 +88,7 @@ export default function LoginDialog({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const apiBase = process.env.NEXT_PUBLIC_PROCESSOR_API;
+  const apiBase = process.env.API_SERVER;
 
   useEffect(() => {
     if (!open) {

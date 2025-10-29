@@ -120,9 +120,9 @@ export const verifyAuthToken = async (
     return null;
   }
 
-  const apiBase = process.env.NEXT_PUBLIC_PROCESSOR_API;
+  const apiBase = process.env.API_SERVER;
   if (!apiBase) {
-    console.warn('Missing NEXT_PUBLIC_PROCESSOR_API environment variable.');
+    console.warn('Missing API_SERVER environment variable.');
     return null;
   }
 
