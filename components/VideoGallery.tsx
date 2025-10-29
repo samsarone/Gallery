@@ -342,6 +342,17 @@ const findFirstArray = (value: unknown, depth = 0): unknown[] => {
     }
   }
 
+  for (const [key, candidate] of Object.entries(value)) {
+    if (COMMENT_COLLECTION_KEYS.includes(key)) {
+      continue;
+    }
+
+    const result = findFirstArray(candidate, depth + 1);
+    if (result.length > 0) {
+      return result;
+    }
+  }
+
   return [];
 };
 
