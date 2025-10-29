@@ -111,7 +111,7 @@ export default function VideoGallery() {
         }
 
         const payload = await response.json();
-        const rawItems = Array.isArray(payload?.items)
+        const rawItems: PublishedVideoPayload[] = Array.isArray(payload?.items)
           ? payload.items
           : Array.isArray(payload?.data)
           ? payload.data
@@ -120,8 +120,8 @@ export default function VideoGallery() {
           : [];
 
         const normalized = rawItems
-          .map((item: PublishedVideoPayload) => normalizeVideo(item))
-          .filter((item): item is PublishedVideo => Boolean(item));
+          .map((item) => normalizeVideo(item))
+          .filter((item: PublishedVideo | null): item is PublishedVideo => Boolean(item));
 
         setVideos((previous) => (loadMore ? mergeVideos(previous, normalized) : normalized));
 

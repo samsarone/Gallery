@@ -4,7 +4,7 @@ export default function HomePage() {
   return (
     <main className="page-shell">
       <header className="hero">
-        <p className="hero__eyebrow">Samsar Studio</p>
+        <p className="hero__eyebrow">T2V Gallery</p>
         <p className="hero__subtitle hero__cta">
           <a
             className="hero__cta-link"
