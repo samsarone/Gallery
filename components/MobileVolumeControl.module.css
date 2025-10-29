@@ -1,0 +1,131 @@
+.wrapper {
+  position: absolute;
+  top: 1.25rem;
+  right: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(4, 6, 18, 0.55);
+  color: var(--text-primary);
+  font-size: 1.45rem;
+  cursor: pointer;
+  backdrop-filter: blur(14px);
+  transition:
+    transform 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease;
+}
+
+.toggle:hover {
+  transform: translateY(-3px);
+  background: rgba(108, 186, 255, 0.3);
+  border-color: rgba(108, 186, 255, 0.7);
+}
+
+.toggle:active {
+  transform: scale(0.95);
+}
+
+.toggle:focus-visible {
+  outline: 2px solid rgba(108, 186, 255, 0.9);
+  outline-offset: 2px;
+}
+
+.toggle[aria-pressed='true'] {
+  border-color: rgba(255, 255, 255, 0.6);
+  background: rgba(108, 186, 255, 0.28);
+}
+
+.slider {
+  padding: 0.75rem 0.9rem;
+  border-radius: 1.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(8, 10, 24, 0.72);
+  backdrop-filter: blur(16px);
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.sliderVisible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.track {
+  position: relative;
+  width: 42px;
+  height: 180px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  touch-action: none;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.track:focus-visible {
+  box-shadow: 0 0 0 2px rgba(108, 186, 255, 0.9);
+}
+
+.fill {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 0;
+  background: linear-gradient(180deg, #6bbaff 0%, #3562ff 100%);
+  pointer-events: none;
+  transition: height 100ms linear;
+}
+
+.thumb {
+  position: absolute;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #f9fbff;
+  border: 2px solid rgba(10, 12, 28, 0.85);
+  transform: translate(-50%, 50%);
+  box-shadow: 0 8px 18px rgba(10, 12, 28, 0.35);
+  pointer-events: none;
+  transition: bottom 100ms linear;
+}
+
+@media (max-width: 640px) {
+  .wrapper {
+    top: 1rem;
+    right: 0.75rem;
+  }
+
+  .toggle {
+    width: 44px;
+    height: 44px;
+    font-size: 1.3rem;
+  }
+
+  .track {
+    width: 36px;
+    height: 156px;
+  }
+}

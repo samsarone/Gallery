@@ -21,6 +21,7 @@ import type {
 } from '@/lib/types';
 import VideoModal from './VideoModal';
 import VideoOverlayContent from './VideoOverlayContent';
+import volumeStyles from './MobileVolumeControl.module.css';
 
 type PublishedVideoPayload = Partial<PublishedVideo> & Record<string, unknown>;
 
@@ -2081,6 +2082,9 @@ export default function VideoGallery() {
     : mobileVolume < 0.75
     ? '🔉'
     : '🔊';
+  const volumeSliderClassName = showMobileVolume
+    ? `${volumeStyles.slider} ${volumeStyles.sliderVisible}`
+    : volumeStyles.slider;
 
   const renderMobileFeed = () =>
     videos.map((video, index) => {
@@ -2108,10 +2112,10 @@ export default function VideoGallery() {
           />
           <div className="mobile-feed__overlay">
             {isActive && (
-              <div className="mobile-feed__volume">
+              <div className={volumeStyles.wrapper}>
                 <button
                   type="button"
-                  className="mobile-feed__volume-toggle"
+                  className={volumeStyles.toggle}
                   onClick={handleVolumeToggle}
                   aria-label={
                     isVolumeEffectivelyMuted ? 'Enable sound' : 'Mute sound'
@@ -2122,14 +2126,10 @@ export default function VideoGallery() {
                 </button>
 
                 <div
-                  className={`mobile-feed__volume-slider${
-                    showMobileVolume
-                      ? ' mobile-feed__volume-slider--visible'
-                      : ''
-                  }`}
+                  className={volumeSliderClassName}
                 >
                   <div
-                    className="mobile-feed__volume-track"
+                    className={volumeStyles.track}
                     role="slider"
                     aria-label="Volume"
                     aria-orientation="vertical"
@@ -2146,11 +2146,11 @@ export default function VideoGallery() {
                     onKeyDown={handleVolumeKeyDown}
                   >
                     <div
-                      className="mobile-feed__volume-fill"
+                      className={volumeStyles.fill}
                       style={{ height: `${volumePercent}%` }}
                     />
                     <div
-                      className="mobile-feed__volume-thumb"
+                      className={volumeStyles.thumb}
                       style={{ bottom: `${volumePercent}%` }}
                     />
                   </div>
