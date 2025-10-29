@@ -4,18 +4,86 @@ const TOKEN_KEY = 'authToken';
 const COOKIE_NAME = 'authToken';
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
-export const getExistingAuthToken = (): string | null => {
-  if (typeof window === 'undefined') {
+const sanitizeToken = (raw: string | null | undefined): string | null => {
+  if (typeof raw !== 'string') {
     return null;
   }
 
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'undefined' || trimmed.toLowerCase() === 'null') {
+    return null;
+  }
+
+  return trimmed;
+};
+
+const getAvailableStorages = (): Storage[] => {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  const storages: Storage[] = [];
+
   try {
-    const stored = window.localStorage.getItem(TOKEN_KEY);
-    if (stored) {
-      return stored;
-    }
+    storages.push(window.sessionStorage);
   } catch {
-    // Ignore storage errors (quota, private mode, etc.)
+    // Ignore access issues (e.g. private mode).
+  }
+
+  try {
+    storages.push(window.localStorage);
+  } catch {
+    // Ignore access issues (e.g. private mode).
+  }
+
+  return storages;
+};
+
+const readTokenFromStorage = (): string | null => {
+  const storages = getAvailableStorages();
+
+  for (const storage of storages) {
+    try {
+      const value = sanitizeToken(storage.getItem(TOKEN_KEY));
+      if (value) {
+        return value;
+      }
+    } catch {
+      // Ignore storage read errors.
+    }
+  }
+
+  return null;
+};
+
+const writeTokenToStorage = (token: string) => {
+  const storages = getAvailableStorages();
+
+  for (const storage of storages) {
+    try {
+      storage.setItem(TOKEN_KEY, token);
+    } catch {
+      // Ignore storage write errors.
+    }
+  }
+};
+
+const clearTokenFromStorage = () => {
+  const storages = getAvailableStorages();
+
+  for (const storage of storages) {
+    try {
+      storage.removeItem(TOKEN_KEY);
+    } catch {
+      // Ignore storage removal errors.
+    }
+  }
+};
+
+export const getExistingAuthToken = (): string | null => {
+  const storedToken = readTokenFromStorage();
+  if (storedToken) {
+    return storedToken;
   }
 
   if (typeof document === 'undefined') {
@@ -26,26 +94,33 @@ export const getExistingAuthToken = (): string | null => {
     new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`)
   );
 
-  return match ? decodeURIComponent(match[1]) : null;
+  const cookieToken = match ? sanitizeToken(decodeURIComponent(match[1])) : null;
+
+  if (cookieToken) {
+    writeTokenToStorage(cookieToken);
+  }
+
+  return cookieToken;
 };
 
 export const persistAuthToken = (token: string) => {
+  const normalizedToken = sanitizeToken(token);
+  if (!normalizedToken) {
+    return;
+  }
+
   if (typeof window === 'undefined') {
     return;
   }
 
-  try {
-    window.localStorage.setItem(TOKEN_KEY, token);
-  } catch {
-    // Ignore storage errors
-  }
+  writeTokenToStorage(normalizedToken);
 
   if (typeof document === 'undefined') {
     return;
   }
 
   const baseCookie = `${COOKIE_NAME}=${encodeURIComponent(
-    token
+    normalizedToken
   )}; path=/; max-age=${MAX_AGE_SECONDS}`;
   document.cookie = baseCookie;
 
@@ -61,7 +136,7 @@ export const persistAuthToken = (token: string) => {
       attributes.push('Secure', 'SameSite=None');
     }
     document.cookie = `${COOKIE_NAME}=${encodeURIComponent(
-      token
+      normalizedToken
     )}; ${attributes.join('; ')}; max-age=${MAX_AGE_SECONDS}`;
   }
 
@@ -71,20 +146,20 @@ export const persistAuthToken = (token: string) => {
       attrs.push('Secure', 'SameSite=None');
     }
     document.cookie = `${COOKIE_NAME}=${encodeURIComponent(
-      token
+      normalizedToken
     )}; ${attrs.join('; ')}; max-age=${MAX_AGE_SECONDS}`;
   }
 };
 
 export const clearAuthToken = () => {
-  if (typeof window === 'undefined' || typeof document === 'undefined') {
+  clearTokenFromStorage();
+
+  if (typeof document === 'undefined') {
     return;
   }
 
-  try {
-    window.localStorage.removeItem(TOKEN_KEY);
-  } catch {
-    // Ignore storage errors
+  if (typeof window === 'undefined') {
+    return;
   }
 
   const expireCookie = `${COOKIE_NAME}=; path=/; max-age=0`;
