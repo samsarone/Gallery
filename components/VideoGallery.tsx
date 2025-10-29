@@ -129,62 +129,414 @@ const normalizeVideo = (payload: unknown): PublishedVideo | null => {
   };
 };
 
-const normalizeComment = (payload: unknown): VideoComment | null => {
-  if (!payload || typeof payload !== 'object') {
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const valueAtPath = (source: unknown, path: string[]): unknown => {
+  let current: unknown = source;
+  for (const segment of path) {
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index) || index < 0 || index >= current.length) {
+        return undefined;
+      }
+      current = current[index];
+      continue;
+    }
+
+    if (!isRecord(current)) {
+      return undefined;
+    }
+
+    current = current[segment];
+  }
+
+  return current;
+};
+
+const pickString = (source: unknown, paths: string[][]): string | null => {
+  for (const path of paths) {
+    const value = valueAtPath(source, path);
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return `${value}`;
+    }
+    if (typeof value === 'bigint') {
+      return value.toString();
+    }
+  }
+
+  return null;
+};
+
+const pickNumber = (source: unknown, paths: string[][]): number | null => {
+  for (const path of paths) {
+    const value = valueAtPath(source, path);
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const sanitized = value.replace(/,/g, '');
+      const parsed = Number.parseFloat(sanitized);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    if (typeof value === 'bigint') {
+      return Number(value);
+    }
+  }
+
+  return null;
+};
+
+const pickBoolean = (source: unknown, paths: string[][]): boolean | null => {
+  for (const path of paths) {
+    const value = valueAtPath(source, path);
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'number' && !Number.isNaN(value)) {
+      if (value === 0) {
+        return false;
+      }
+      if (value === 1) {
+        return true;
+      }
+    }
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'y'].includes(normalized)) {
+        return true;
+      }
+      if (['false', '0', 'no', 'n'].includes(normalized)) {
+        return false;
+      }
+    }
+  }
+
+  return null;
+};
+
+const pickStringFromSources = (
+  sources: unknown[],
+  paths: string[][]
+): string | null => {
+  for (const source of sources) {
+    const result = pickString(source, paths);
+    if (result) {
+      return result;
+    }
+  }
+
+  return null;
+};
+
+const pickBooleanFromSources = (
+  sources: unknown[],
+  paths: string[][]
+): boolean | null => {
+  for (const source of sources) {
+    const result = pickBoolean(source, paths);
+    if (result !== null) {
+      return result;
+    }
+  }
+
+  return null;
+};
+
+const expandCommentEntry = (entry: unknown): Record<string, unknown> | null => {
+  if (!isRecord(entry)) {
     return null;
   }
 
-  const record = payload as Record<string, unknown>;
+  const merged: Record<string, unknown> = { ...entry };
+  const nestedKeys = ['node', 'comment', 'value', 'payload', 'data'];
+
+  nestedKeys.forEach((key) => {
+    const nested = merged[key];
+    if (isRecord(nested)) {
+      for (const [nestedKey, nestedValue] of Object.entries(nested)) {
+        if (!(nestedKey in merged)) {
+          merged[nestedKey] = nestedValue;
+        }
+      }
+    }
+  });
+
+  return merged;
+};
+
+const COMMENT_COLLECTION_KEYS: readonly string[] = [
+  'items',
+  'comments',
+  'data',
+  'results',
+  'records',
+  'collection',
+  'list',
+  'edges',
+  'nodes',
+  'docs',
+  'entries',
+  'values',
+  'payload',
+  'response',
+  'children',
+  'elements',
+  'rows'
+];
+
+const MAX_COLLECTION_DEPTH = 4;
+
+const findFirstArray = (value: unknown, depth = 0): unknown[] => {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (!isRecord(value) || depth >= MAX_COLLECTION_DEPTH) {
+    return [];
+  }
+
+  for (const key of COMMENT_COLLECTION_KEYS) {
+    const candidate = value[key];
+    const result = findFirstArray(candidate, depth + 1);
+    if (result.length > 0) {
+      return result;
+    }
+  }
+
+  return [];
+};
+
+const gatherMetadataSources = (
+  value: unknown
+): Record<string, unknown>[] => {
+  const sources: Record<string, unknown>[] = [];
+  const seen = new Set<unknown>();
+  const queue: unknown[] = [];
+
+  if (isRecord(value)) {
+    queue.push(value);
+    seen.add(value);
+  }
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!isRecord(current)) {
+      continue;
+    }
+
+    sources.push(current);
+
+    const nestedKeys = [
+      'comments',
+      'data',
+      'results',
+      'collection',
+      'records',
+      'list',
+      'pagination',
+      'pageInfo',
+      'page_info',
+      'meta',
+      'metadata',
+      'info',
+      'links'
+    ];
+
+    for (const key of nestedKeys) {
+      const nested = current[key];
+      if (nested && isRecord(nested) && !seen.has(nested)) {
+        seen.add(nested);
+        queue.push(nested);
+      }
+    }
+  }
+
+  return sources;
+};
+
+const normalizeComment = (payload: unknown): VideoComment | null => {
+  const record =
+    expandCommentEntry(payload) ??
+    (isRecord(payload) ? (payload as Record<string, unknown>) : null);
+
+  if (!record) {
+    return null;
+  }
+
   const id =
-    typeof record.id === 'string' && record.id
-      ? record.id
-      : typeof record._id === 'string' && record._id
-      ? (record._id as string)
-      : '';
+    pickString(record, [
+      ['id'],
+      ['_id'],
+      ['commentId'],
+      ['comment_id'],
+      ['commentID'],
+      ['uuid'],
+      ['uid'],
+      ['externalId'],
+      ['external_id'],
+      ['nodeId'],
+      ['comment', 'id'],
+      ['comment', '_id'],
+      ['node', 'id'],
+      ['node', '_id'],
+      ['value', 'id'],
+      ['value', '_id']
+    ]) ?? '';
 
-  const text =
-    typeof record.text === 'string' ? record.text.trim() : '';
+  const textRaw =
+    pickString(record, [
+      ['text'],
+      ['body'],
+      ['content'],
+      ['message'],
+      ['comment'],
+      ['value'],
+      ['payload', 'text'],
+      ['payload', 'content'],
+      ['node', 'text'],
+      ['node', 'body'],
+      ['node', 'content'],
+      ['node', 'message'],
+      ['comment', 'text'],
+      ['comment', 'body'],
+      ['comment', 'content'],
+      ['comment', 'message'],
+      ['data', 'text'],
+      ['data', 'content'],
+      ['attributes', 'text'],
+      ['attributes', 'content']
+    ]) ?? '';
 
+  const text = textRaw.trim();
   if (!id || !text) {
     return null;
   }
 
-  const createdAtRaw = record.createdAt as unknown;
-  const createdAt =
-    typeof createdAtRaw === 'string'
-      ? createdAtRaw
-      : createdAtRaw instanceof Date
-      ? createdAtRaw.toISOString()
-      : createdAtRaw
-      ? new Date(createdAtRaw as string | number | Date).toISOString()
-      : new Date().toISOString();
-
   const creatorHandle =
-    typeof record.creatorHandle === 'string' &&
-    record.creatorHandle.trim().length > 0
-      ? record.creatorHandle.trim()
-      : 'User';
+    pickString(record, [
+      ['creatorHandle'],
+      ['creator_handle'],
+      ['creator', 'handle'],
+      ['creator', 'username'],
+      ['creator', 'name'],
+      ['user', 'handle'],
+      ['user', 'username'],
+      ['user', 'name'],
+      ['author', 'handle'],
+      ['author', 'username'],
+      ['author', 'name'],
+      ['owner', 'handle'],
+      ['owner', 'username'],
+      ['owner', 'name'],
+      ['profile', 'handle'],
+      ['profile', 'username'],
+      ['profile', 'name'],
+      ['createdBy', 'handle'],
+      ['createdBy', 'username'],
+      ['created_by', 'handle'],
+      ['created_by', 'username'],
+      ['account', 'handle'],
+      ['account', 'username'],
+      ['account', 'name']
+    ]) ?? 'User';
 
-  const createdByRaw = record.createdBy;
   const createdBy =
-    typeof createdByRaw === 'string'
-      ? createdByRaw
-      : createdByRaw &&
-        typeof createdByRaw === 'object' &&
-        'toString' in createdByRaw &&
-        typeof (createdByRaw as { toString: () => string }).toString ===
-          'function'
-      ? (createdByRaw as { toString: () => string }).toString()
-      : '';
+    pickString(record, [
+      ['createdBy'],
+      ['created_by'],
+      ['createdById'],
+      ['creatorId'],
+      ['creator_id'],
+      ['userId'],
+      ['user_id'],
+      ['authorId'],
+      ['author_id'],
+      ['ownerId'],
+      ['owner_id'],
+      ['profile', 'id'],
+      ['creator', 'id'],
+      ['creator', '_id'],
+      ['user', 'id'],
+      ['user', '_id'],
+      ['author', 'id'],
+      ['author', '_id'],
+      ['comment', 'createdBy'],
+      ['comment', 'created_by']
+    ]) ?? '';
 
-  const likesRecord = record.likes;
-  const likes =
-    typeof likesRecord === 'number'
-      ? likesRecord
-      : typeof (likesRecord as Record<string, unknown>)?.count === 'number'
-      ? ((likesRecord as Record<string, number>).count ?? 0)
-      : 0;
-  const isBotUser = Boolean(record.isBotUser);
+  const createdAtCandidate =
+    pickString(record, [
+      ['createdAt'],
+      ['created_at'],
+      ['createdOn'],
+      ['created_on'],
+      ['timestamp'],
+      ['publishedAt'],
+      ['published_at'],
+      ['insertedAt'],
+      ['inserted_at'],
+      ['created'],
+      ['dateCreated'],
+      ['date_created'],
+      ['node', 'createdAt'],
+      ['node', 'created_at'],
+      ['comment', 'createdAt'],
+      ['comment', 'created_at'],
+      ['meta', 'createdAt'],
+      ['meta', 'created_at']
+    ]) ?? null;
+
+  let createdAt = new Date().toISOString();
+  if (createdAtCandidate) {
+    const numericValue = Number(createdAtCandidate);
+    if (!Number.isNaN(numericValue) && Number.isFinite(numericValue)) {
+      createdAt = new Date(numericValue).toISOString();
+    } else if (!Number.isNaN(Date.parse(createdAtCandidate))) {
+      createdAt = new Date(createdAtCandidate).toISOString();
+    }
+  }
+
+  const likesValue =
+    pickNumber(record, [
+      ['likes'],
+      ['likesCount'],
+      ['likes_count'],
+      ['likesTotal'],
+      ['likes', 'count'],
+      ['likes', 'total'],
+      ['stats', 'likes'],
+      ['metrics', 'likes'],
+      ['interactions', 'likes'],
+      ['engagement', 'likes'],
+      ['node', 'likes'],
+      ['comment', 'likes'],
+      ['comment', 'likesCount'],
+      ['meta', 'likes']
+    ]) ?? 0;
+
+  const isBotUser =
+    pickBoolean(record, [
+      ['isBotUser'],
+      ['isBot'],
+      ['bot'],
+      ['creator', 'isBot'],
+      ['creator', 'isBotUser'],
+      ['user', 'isBot'],
+      ['user', 'isBotUser'],
+      ['author', 'isBot'],
+      ['author', 'isBotUser'],
+      ['comment', 'isBot'],
+      ['comment', 'isBotUser']
+    ]) ?? false;
 
   return {
     id,
@@ -192,8 +544,84 @@ const normalizeComment = (payload: unknown): VideoComment | null => {
     creatorHandle,
     createdBy,
     createdAt,
-    likes: Number(likes) || 0,
+    likes: Math.max(0, Math.round(likesValue)),
     isBotUser
+  };
+};
+
+interface ParsedCommentsPayload {
+  items: VideoComment[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+const parseCommentsPayload = (payload: unknown): ParsedCommentsPayload => {
+  let rawItems = findFirstArray(payload);
+
+  if (rawItems.length === 0 && isRecord(payload)) {
+    const direct = normalizeComment(payload);
+    if (direct) {
+      rawItems = [payload];
+    }
+  }
+
+  const normalizedItems = rawItems
+    .map((item) => expandCommentEntry(item) ?? item)
+    .map((item) => normalizeComment(item))
+    .filter((item): item is VideoComment => Boolean(item));
+
+  const metadataSources = gatherMetadataSources(payload);
+
+  const nextCursor =
+    pickStringFromSources(metadataSources, [
+      ['nextCursor'],
+      ['next', 'cursor'],
+      ['cursor'],
+      ['pagination', 'nextCursor'],
+      ['pagination', 'cursor'],
+      ['pagination', 'next'],
+      ['pagination', 'nextToken'],
+      ['pagination', 'next_token'],
+      ['pageInfo', 'endCursor'],
+      ['pageInfo', 'end_cursor'],
+      ['meta', 'nextCursor'],
+      ['meta', 'next_cursor'],
+      ['meta', 'nextToken'],
+      ['meta', 'next_token'],
+      ['comments', 'nextCursor'],
+      ['comments', 'cursor'],
+      ['comments', 'next', 'cursor'],
+      ['comments', 'pagination', 'nextCursor'],
+      ['data', 'nextCursor'],
+      ['data', 'cursor'],
+      ['data', 'pagination', 'nextCursor']
+    ]) ?? null;
+
+  const hasMoreFlag =
+    pickBooleanFromSources(metadataSources, [
+      ['hasMore'],
+      ['has_more'],
+      ['hasNext'],
+      ['hasNextPage'],
+      ['pagination', 'hasMore'],
+      ['pagination', 'has_more'],
+      ['pagination', 'hasNext'],
+      ['pagination', 'hasNextPage'],
+      ['pageInfo', 'hasNextPage'],
+      ['pageInfo', 'has_next_page'],
+      ['meta', 'hasMore'],
+      ['meta', 'has_more'],
+      ['meta', 'hasNext'],
+      ['comments', 'hasMore'],
+      ['comments', 'has_more'],
+      ['data', 'hasMore'],
+      ['data', 'has_more']
+    ]);
+
+  return {
+    items: normalizedItems,
+    nextCursor,
+    hasMore: hasMoreFlag ?? Boolean(nextCursor)
   };
 };
 
@@ -640,35 +1068,31 @@ export default function VideoGallery() {
         }
 
         const payload = await response.json();
-        const rawItems = Array.isArray(payload?.items)
-          ? payload.items
-          : Array.isArray(payload)
-          ? payload
-          : [];
-        const normalized = rawItems
-          .map((item: unknown) => normalizeComment(item))
-          .filter(
-            (item: VideoComment | null): item is VideoComment =>
-              Boolean(item)
+        if (
+          payload &&
+          typeof payload === 'object' &&
+          'error' in payload &&
+          typeof (payload as { error?: unknown }).error === 'string'
+        ) {
+          throw new Error(
+            (payload as { error?: string }).error ||
+              'Failed to load comments.'
           );
+        }
 
-        const next =
-          typeof payload?.nextCursor === 'string' &&
-          payload.nextCursor.length > 0
-            ? payload.nextCursor
-            : null;
-        const more =
-          typeof payload?.hasMore === 'boolean'
-            ? payload.hasMore
-            : Boolean(next);
+        const {
+          items: normalized,
+          nextCursor,
+          hasMore
+        } = parseCommentsPayload(payload);
 
         setCommentsMap((previous) => ({
           ...previous,
           [videoId]: {
             ...(previous[videoId] ?? createInitialCommentState()),
             items: normalized,
-            nextCursor: next,
-            hasMore: more,
+            nextCursor,
+            hasMore,
             isLoading: false,
             error: null,
             isPosting:
@@ -729,27 +1153,23 @@ export default function VideoGallery() {
         }
 
         const payload = await response.json();
-        const rawItems = Array.isArray(payload?.items)
-          ? payload.items
-          : Array.isArray(payload)
-          ? payload
-          : [];
-        const normalized = rawItems
-          .map((item: unknown) => normalizeComment(item))
-          .filter(
-            (item: VideoComment | null): item is VideoComment =>
-              Boolean(item)
+        if (
+          payload &&
+          typeof payload === 'object' &&
+          'error' in payload &&
+          typeof (payload as { error?: unknown }).error === 'string'
+        ) {
+          throw new Error(
+            (payload as { error?: string }).error ||
+              'Failed to load comments.'
           );
+        }
 
-        const next =
-          typeof payload?.nextCursor === 'string' &&
-          payload.nextCursor.length > 0
-            ? payload.nextCursor
-            : null;
-        const more =
-          typeof payload?.hasMore === 'boolean'
-            ? payload.hasMore
-            : Boolean(next);
+        const {
+          items: normalized,
+          nextCursor,
+          hasMore
+        } = parseCommentsPayload(payload);
 
         setCommentsMap((previous) => {
           const state =
@@ -759,8 +1179,8 @@ export default function VideoGallery() {
             [videoId]: {
               ...state,
               items: [...state.items, ...normalized],
-              nextCursor: next,
-              hasMore: more,
+              nextCursor,
+              hasMore,
               isLoading: false,
               error: null
             }
