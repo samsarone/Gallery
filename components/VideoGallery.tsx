@@ -78,7 +78,7 @@ const normalizeVideo = (payload: unknown): PublishedVideo | null => {
           .filter(Boolean)
       : undefined;
 
-  const createdAtRaw = record.createdAt;
+  const createdAtRaw = record.createdAt as unknown;
   const createdAt =
     typeof createdAtRaw === 'string'
       ? createdAtRaw
@@ -149,7 +149,7 @@ const normalizeComment = (payload: unknown): VideoComment | null => {
     return null;
   }
 
-  const createdAtRaw = record.createdAt;
+  const createdAtRaw = record.createdAt as unknown;
   const createdAt =
     typeof createdAtRaw === 'string'
       ? createdAtRaw
@@ -530,7 +530,7 @@ export default function VideoGallery() {
           : [];
 
         const normalized = rawItems
-          .map((item) => normalizeVideo(item))
+          .map((item: unknown) => normalizeVideo(item))
           .filter(
             (item: PublishedVideo | null): item is PublishedVideo =>
               Boolean(item)
@@ -646,7 +646,7 @@ export default function VideoGallery() {
           ? payload
           : [];
         const normalized = rawItems
-          .map((item) => normalizeComment(item))
+          .map((item: unknown) => normalizeComment(item))
           .filter(
             (item: VideoComment | null): item is VideoComment =>
               Boolean(item)
@@ -735,7 +735,7 @@ export default function VideoGallery() {
           ? payload
           : [];
         const normalized = rawItems
-          .map((item) => normalizeComment(item))
+          .map((item: unknown) => normalizeComment(item))
           .filter(
             (item: VideoComment | null): item is VideoComment =>
               Boolean(item)

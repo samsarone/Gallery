@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
         : null;
 
     const normalizedItems = items
-      .map((item) => {
+      .map((item: unknown) => {
         if (!item || typeof item !== 'object') {
           return null;
         }
@@ -142,7 +142,7 @@ export async function GET(request: NextRequest) {
           isBotUser: Boolean(record.isBotUser)
         };
       })
-      .filter((item): item is Record<string, unknown> => Boolean(item));
+      .filter((item: unknown): item is Record<string, unknown> => Boolean(item));
 
     return NextResponse.json({
       items: normalizedItems,
