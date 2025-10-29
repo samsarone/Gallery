@@ -11,6 +11,7 @@ export interface VideoComment {
   createdBy: string;
   createdAt: string;
   likes: number;
+  isBotUser?: boolean;
 }
 
 export interface VideoCommentState {
@@ -35,6 +36,7 @@ export interface PublishedVideo {
   createdAt?: string | null;
   stats: VideoStats;
   viewerHasLiked: boolean;
+  isBotUser?: boolean;
 }
 
 export interface AuthenticatedUser {

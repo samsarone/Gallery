@@ -169,7 +169,9 @@ export default function VideoModal({
             <h2 id="modal-title">{video.title}</h2>
             <p className="modal__creator">
               {video.creatorHandle
-                ? `By ${video.creatorHandle}`
+                ? `By ${video.creatorHandle}${
+                    video.isBotUser ? ' [bot]' : ''
+                  }`
                 : 'Published video'}
             </p>
           </header>
@@ -229,7 +231,9 @@ export default function VideoModal({
                 <div className="modal__comment" key={comment.id}>
                   <div className="modal__comment-header">
                     <span className="modal__comment-author">
-                      {comment.creatorHandle}
+                      {comment.isBotUser
+                        ? `${comment.creatorHandle} [bot]`
+                        : comment.creatorHandle}
                     </span>
                     <time
                       dateTime={comment.createdAt}

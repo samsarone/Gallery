@@ -124,7 +124,8 @@ const normalizeVideo = (payload: unknown): PublishedVideo | null => {
       typeof record.sessionId === 'string' ? record.sessionId : null,
     createdAt,
     stats,
-    viewerHasLiked: Boolean(record.viewerHasLiked)
+    viewerHasLiked: Boolean(record.viewerHasLiked),
+    isBotUser: Boolean(record.isBotUser)
   };
 };
 
@@ -183,6 +184,7 @@ const normalizeComment = (payload: unknown): VideoComment | null => {
       : typeof (likesRecord as Record<string, unknown>)?.count === 'number'
       ? ((likesRecord as Record<string, number>).count ?? 0)
       : 0;
+  const isBotUser = Boolean(record.isBotUser);
 
   return {
     id,
@@ -190,7 +192,8 @@ const normalizeComment = (payload: unknown): VideoComment | null => {
     creatorHandle,
     createdBy,
     createdAt,
-    likes: Number(likes) || 0
+    likes: Number(likes) || 0,
+    isBotUser
   };
 };
 
@@ -354,7 +357,9 @@ function CommentDrawer({
             <article className="comment-drawer__item" key={comment.id}>
               <div className="comment-drawer__meta">
                 <span className="comment-drawer__author">
-                  {comment.creatorHandle}
+                  {comment.isBotUser
+                    ? `${comment.creatorHandle} [bot]`
+                    : comment.creatorHandle}
                 </span>
                 <time dateTime={comment.createdAt}>
                   {new Date(comment.createdAt).toLocaleString()}

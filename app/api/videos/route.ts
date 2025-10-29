@@ -138,7 +138,8 @@ export async function GET(request: NextRequest) {
             typeof record.originalPrompt === 'string' ? record.originalPrompt.trim() : undefined,
           tags,
           stats,
-          viewerHasLiked: Boolean(record.viewerHasLiked)
+          viewerHasLiked: Boolean(record.viewerHasLiked),
+          isBotUser: Boolean(record.isBotUser)
         };
       })
       .filter((item): item is Record<string, unknown> => Boolean(item));
