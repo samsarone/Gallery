@@ -3,6 +3,7 @@
 
 import {
   FormEvent,
+  SyntheticEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -35,6 +36,8 @@ const MOBILE_BREAKPOINT = 768;
 const DEFAULT_MOBILE_VOLUME = 0.65;
 const MIN_AUDIBLE_VOLUME = 0.02;
 const MOBILE_VOLUME_HIDE_DELAY = 2200;
+const MOBILE_VOLUME_STORAGE_KEY = 'samsar-gallery/mobile-volume';
+const MOBILE_MUTED_STORAGE_KEY = 'samsar-gallery/mobile-muted';
 
 const clampVolume = (value: number): number =>
   Math.min(1, Math.max(0, value));
@@ -274,7 +277,23 @@ const expandCommentEntry = (entry: unknown): Record<string, unknown> | null => {
     const nested = merged[key];
     if (isRecord(nested)) {
       for (const [nestedKey, nestedValue] of Object.entries(nested)) {
-        if (!(nestedKey in merged)) {
+        const hasOwn = Object.prototype.hasOwnProperty.call(
+          merged,
+          nestedKey
+        );
+        const existing = merged[nestedKey];
+        // Some APIs set placeholder fields (e.g., null text) at the top level,
+        // so prefer the populated nested value when the existing one is empty.
+        const shouldOverride =
+          !hasOwn ||
+          existing === undefined ||
+          existing === null ||
+          (typeof existing === 'string' &&
+            existing.trim().length === 0 &&
+            typeof nestedValue === 'string' &&
+            nestedValue.trim().length > 0);
+
+        if (shouldOverride) {
           merged[nestedKey] = nestedValue;
         }
       }
@@ -904,6 +923,58 @@ export default function VideoGallery() {
   const lastAudibleVolumeRef = useRef<number>(DEFAULT_MOBILE_VOLUME);
   const adjustingVolumeRef = useRef<boolean>(false);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      const storage = window.sessionStorage;
+      if (!storage) {
+        return;
+      }
+
+      const storedVolumeRaw = storage.getItem(MOBILE_VOLUME_STORAGE_KEY);
+      const storedMutedRaw = storage.getItem(MOBILE_MUTED_STORAGE_KEY);
+
+      let restoredVolume: number | null = null;
+      if (storedVolumeRaw !== null) {
+        const parsed = Number.parseFloat(storedVolumeRaw);
+        if (Number.isFinite(parsed)) {
+          restoredVolume = clampVolume(parsed);
+        }
+      }
+
+      let restoredMuted: boolean | null = null;
+      if (storedMutedRaw !== null) {
+        if (storedMutedRaw === '1' || storedMutedRaw === 'true') {
+          restoredMuted = true;
+        } else if (storedMutedRaw === '0' || storedMutedRaw === 'false') {
+          restoredMuted = false;
+        }
+      }
+
+      if (restoredVolume !== null) {
+        setMobileVolume(restoredVolume);
+        if (restoredVolume > MIN_AUDIBLE_VOLUME) {
+          lastAudibleVolumeRef.current = restoredVolume;
+        }
+      }
+
+      const effectiveMuted =
+        restoredMuted ??
+        (restoredVolume !== null
+          ? restoredVolume <= MIN_AUDIBLE_VOLUME
+          : null);
+
+      if (effectiveMuted !== null) {
+        setMobileMuted(effectiveMuted);
+      }
+    } catch {
+      // sessionStorage might be unavailable (e.g., private browsing). Ignore.
+    }
+  }, []);
+
   const promptLogin = useCallback((message: string) => {
     setAuthNotice(message);
     dispatchAuthModal('login');
@@ -987,6 +1058,30 @@ export default function VideoGallery() {
     },
     [activeFeedIndex, isMobile]
   );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      const storage = window.sessionStorage;
+      if (!storage) {
+        return;
+      }
+
+      storage.setItem(
+        MOBILE_VOLUME_STORAGE_KEY,
+        String(mobileVolume)
+      );
+      storage.setItem(
+        MOBILE_MUTED_STORAGE_KEY,
+        mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME ? '1' : '0'
+      );
+    } catch {
+      // sessionStorage might be unavailable (e.g., private browsing). Ignore.
+    }
+  }, [mobileMuted, mobileVolume]);
 
   const updateVolumeFromTrack = useCallback(
     (track: HTMLDivElement, clientY: number) => {
@@ -1090,6 +1185,25 @@ export default function VideoGallery() {
       revealVolumeOverlay();
     },
     [revealVolumeOverlay]
+  );
+
+  const handleMobileVideoLoadedMetadata = useCallback(
+    (event: SyntheticEvent<HTMLVideoElement>) => {
+      if (!isMobile) {
+        return;
+      }
+
+      const videoElement = event.currentTarget;
+      const shouldMute = mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
+      const resolvedVolume = shouldMute ? 0 : mobileVolume;
+
+      videoElement.volume = resolvedVolume;
+
+      if (shouldMute && !videoElement.muted) {
+        videoElement.muted = true;
+      }
+    },
+    [isMobile, mobileMuted, mobileVolume]
   );
 
   const handleVolumeKeyDown = useCallback(
@@ -1853,8 +1967,9 @@ export default function VideoGallery() {
         return;
       }
 
+      videoElement.volume = resolvedVolume;
+
       if (index === activeFeedIndex) {
-        videoElement.volume = resolvedVolume;
         videoElement.muted = shouldMuteActive;
         const play = videoElement.play();
         if (play && typeof play.catch === 'function') {
@@ -2108,6 +2223,7 @@ export default function VideoGallery() {
             loop
             playsInline
             muted={shouldMuteVideo}
+            onLoadedMetadata={handleMobileVideoLoadedMetadata}
             preload="metadata"
           />
           <div className="mobile-feed__overlay">
