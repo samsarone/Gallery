@@ -1,9 +1,36 @@
 import type { Metadata } from 'next';
 import './globals.css';
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+const metadataBase = siteUrl ? new URL(siteUrl) : undefined;
+const ogTitle = 'SamsarOne T2V Gallery';
+const ogDescription = 'Explore creations made public by the creators.';
+
 export const metadata: Metadata = {
-  title: 'Samsar Gallery',
-  description: 'Discover published Samsar videos in a fluid, infinite masonry gallery experience.'
+  metadataBase,
+  title: ogTitle,
+  description: ogDescription,
+  openGraph: {
+    title: ogTitle,
+    description: ogDescription,
+    url: siteUrl,
+    siteName: ogTitle,
+    type: 'website',
+    images: [
+      {
+        url: '/splash.jpg',
+        width: 1200,
+        height: 630,
+        alt: 'SamsarOne T2V Gallery splash image'
+      }
+    ]
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: ogTitle,
+    description: ogDescription,
+    images: ['/splash.jpg']
+  }
 };
 
 export default function RootLayout({
