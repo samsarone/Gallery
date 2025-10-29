@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import {
   clearAuthToken,
   persistAuthToken,
@@ -12,7 +12,18 @@ import {
 type Status = 'pending' | 'success' | 'error';
 
 export default function VerifyPage() {
-  const router = useRouter();
+  return (
+    <Suspense fallback={<VerifyFallback />}>
+      <VerifyContent />
+    </Suspense>
+  );
+}
+
+function VerifyFallback() {
+  return <VerifyCard status="pending" message="Verifying your sign-in…" />;
+}
+
+function VerifyContent() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<Status>('pending');
   const [message, setMessage] = useState('Verifying your sign-in…');
@@ -39,8 +50,14 @@ export default function VerifyPage() {
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
+
       timeoutId = setTimeout(() => {
-        router.replace(destination);
+        if (typeof window === 'undefined') {
+          return;
+        }
+
+        const target = new URL(destination, window.location.origin);
+        window.location.replace(target.toString());
       }, delay);
     };
 
@@ -105,8 +122,18 @@ export default function VerifyPage() {
         clearTimeout(timeoutId);
       }
     };
-  }, [router, searchParams]);
+  }, [searchParams]);
 
+  return <VerifyCard status={status} message={message} />;
+}
+
+function VerifyCard({
+  status,
+  message
+}: {
+  status: Status;
+  message: string;
+}) {
   return (
     <main className="verify-page">
       <div className="verify-card" role="status" aria-live="polite">
@@ -114,12 +141,18 @@ export default function VerifyPage() {
           <div className="verify-indicator" aria-hidden="true" />
         )}
         {status === 'success' && (
-          <div className="verify-indicator verify-indicator--success" aria-hidden="true">
+          <div
+            className="verify-indicator verify-indicator--success"
+            aria-hidden="true"
+          >
             ✓
           </div>
         )}
         {status === 'error' && (
-          <div className="verify-indicator verify-indicator--error" aria-hidden="true">
+          <div
+            className="verify-indicator verify-indicator--error"
+            aria-hidden="true"
+          >
             !
           </div>
         )}
