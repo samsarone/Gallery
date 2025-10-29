@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import TopNav from '@/components/TopNav';
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
 const metadataBase = siteUrl ? new URL(siteUrl) : undefined;
@@ -40,7 +41,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <TopNav />
+        {children}
+      </body>
     </html>
   );
 }
