@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 
 const apiServer = process.env.API_SERVER;
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 export async function GET() {
   if (!apiServer) {
     return NextResponse.json(
