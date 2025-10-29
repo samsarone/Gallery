@@ -10,6 +10,10 @@ import {
   useState
 } from 'react';
 import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent
+} from 'react';
+import type {
   PublishedVideo,
   VideoComment,
   VideoCommentState,
@@ -27,6 +31,12 @@ interface InteractionState {
 
 const PAGE_SIZE = 24;
 const MOBILE_BREAKPOINT = 768;
+const DEFAULT_MOBILE_VOLUME = 0.65;
+const MIN_AUDIBLE_VOLUME = 0.02;
+const MOBILE_VOLUME_HIDE_DELAY = 2200;
+
+const clampVolume = (value: number): number =>
+  Math.min(1, Math.max(0, value));
 
 const DEFAULT_INTERACTION_STATE: InteractionState = Object.freeze({
   liking: false,
@@ -873,6 +883,11 @@ export default function VideoGallery() {
   >({});
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [mobileVolume, setMobileVolume] = useState<number>(
+    DEFAULT_MOBILE_VOLUME
+  );
+  const [mobileMuted, setMobileMuted] = useState<boolean>(true);
+  const [showMobileVolume, setShowMobileVolume] = useState<boolean>(false);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const feedItemRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -882,6 +897,11 @@ export default function VideoGallery() {
     null
   );
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const volumeOverlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const lastAudibleVolumeRef = useRef<number>(DEFAULT_MOBILE_VOLUME);
+  const adjustingVolumeRef = useRef<boolean>(false);
 
   const promptLogin = useCallback((message: string) => {
     setAuthNotice(message);
@@ -910,6 +930,201 @@ export default function VideoGallery() {
       );
     },
     []
+  );
+
+  const clearVolumeOverlayTimeout = useCallback(() => {
+    if (volumeOverlayTimeoutRef.current) {
+      clearTimeout(volumeOverlayTimeoutRef.current);
+      volumeOverlayTimeoutRef.current = null;
+    }
+  }, []);
+
+  const showVolumeOverlay = useCallback(() => {
+    setShowMobileVolume(true);
+    clearVolumeOverlayTimeout();
+  }, [clearVolumeOverlayTimeout]);
+
+  const revealVolumeOverlay = useCallback(() => {
+    showVolumeOverlay();
+    volumeOverlayTimeoutRef.current = setTimeout(() => {
+      setShowMobileVolume(false);
+      volumeOverlayTimeoutRef.current = null;
+    }, MOBILE_VOLUME_HIDE_DELAY);
+  }, [showVolumeOverlay]);
+
+  const commitMobileVolume = useCallback(
+    (nextVolume: number) => {
+      const clamped = clampVolume(nextVolume);
+      const shouldMute = clamped <= MIN_AUDIBLE_VOLUME;
+      const resolvedVolume = shouldMute ? 0 : clamped;
+
+      setMobileVolume(resolvedVolume);
+      setMobileMuted(shouldMute);
+
+      if (!shouldMute) {
+        lastAudibleVolumeRef.current = resolvedVolume;
+      }
+
+      if (!isMobile) {
+        return;
+      }
+
+      const activeElement =
+        feedItemRefs.current[activeFeedIndex]?.querySelector('video');
+
+      if (activeElement instanceof HTMLVideoElement) {
+        activeElement.volume = resolvedVolume;
+        activeElement.muted = shouldMute;
+
+        if (!shouldMute) {
+          const playAttempt = activeElement.play();
+          if (playAttempt && typeof playAttempt.catch === 'function') {
+            playAttempt.catch(() => {});
+          }
+        }
+      }
+    },
+    [activeFeedIndex, isMobile]
+  );
+
+  const updateVolumeFromTrack = useCallback(
+    (track: HTMLDivElement, clientY: number) => {
+      const rect = track.getBoundingClientRect();
+      if (rect.height === 0) {
+        return;
+      }
+
+      const ratio = (rect.bottom - clientY) / rect.height;
+      commitMobileVolume(ratio);
+    },
+    [commitMobileVolume]
+  );
+
+  const handleVolumeToggle = useCallback(() => {
+    if (mobileMuted) {
+      const fallback =
+        mobileVolume > MIN_AUDIBLE_VOLUME
+          ? mobileVolume
+          : lastAudibleVolumeRef.current || DEFAULT_MOBILE_VOLUME;
+      const target =
+        fallback > MIN_AUDIBLE_VOLUME ? fallback : DEFAULT_MOBILE_VOLUME;
+
+      commitMobileVolume(target);
+    } else {
+      if (mobileVolume > MIN_AUDIBLE_VOLUME) {
+        lastAudibleVolumeRef.current = mobileVolume;
+      }
+      commitMobileVolume(0);
+    }
+
+    revealVolumeOverlay();
+  }, [commitMobileVolume, mobileMuted, mobileVolume, revealVolumeOverlay]);
+
+  const handleVolumePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!isMobile) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      adjustingVolumeRef.current = true;
+      showVolumeOverlay();
+
+      const target = event.currentTarget;
+
+      if (
+        typeof target.focus === 'function' &&
+        typeof document !== 'undefined' &&
+        target !== document.activeElement
+      ) {
+        target.focus();
+      }
+
+      if (typeof target.setPointerCapture === 'function') {
+        try {
+          target.setPointerCapture(event.pointerId);
+        } catch {
+          // Ignore pointer capture errors on unsupported browsers.
+        }
+      }
+
+      updateVolumeFromTrack(target, event.clientY);
+    },
+    [isMobile, showVolumeOverlay, updateVolumeFromTrack]
+  );
+
+  const handleVolumePointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!adjustingVolumeRef.current) {
+        return;
+      }
+
+      event.preventDefault();
+      updateVolumeFromTrack(event.currentTarget, event.clientY);
+    },
+    [updateVolumeFromTrack]
+  );
+
+  const handleVolumePointerEnd = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!adjustingVolumeRef.current) {
+        return;
+      }
+
+      event.preventDefault();
+      adjustingVolumeRef.current = false;
+
+      const target = event.currentTarget;
+
+      if (typeof target.releasePointerCapture === 'function') {
+        try {
+          target.releasePointerCapture(event.pointerId);
+        } catch {
+          // Ignore pointer capture errors on unsupported browsers.
+        }
+      }
+
+      revealVolumeOverlay();
+    },
+    [revealVolumeOverlay]
+  );
+
+  const handleVolumeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      let nextVolume = mobileVolume;
+
+      switch (event.key) {
+        case 'ArrowUp':
+        case 'ArrowRight':
+          nextVolume = mobileVolume + 0.05;
+          break;
+        case 'ArrowDown':
+        case 'ArrowLeft':
+          nextVolume = mobileVolume - 0.05;
+          break;
+        case 'PageUp':
+          nextVolume = mobileVolume + 0.1;
+          break;
+        case 'PageDown':
+          nextVolume = mobileVolume - 0.1;
+          break;
+        case 'Home':
+          nextVolume = 0;
+          break;
+        case 'End':
+          nextVolume = 1;
+          break;
+        default:
+          return;
+      }
+
+      event.preventDefault();
+      commitMobileVolume(nextVolume);
+      revealVolumeOverlay();
+    },
+    [commitMobileVolume, mobileVolume, revealVolumeOverlay]
   );
 
   const fetchVideos = useCallback(
@@ -1626,6 +1841,9 @@ export default function VideoGallery() {
       return;
     }
 
+    const shouldMuteActive = mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
+    const resolvedVolume = shouldMuteActive ? 0 : mobileVolume;
+
     feedItemRefs.current.forEach((element, index) => {
       const videoElement = element?.querySelector('video') as
         | HTMLVideoElement
@@ -1635,16 +1853,41 @@ export default function VideoGallery() {
       }
 
       if (index === activeFeedIndex) {
-        videoElement.muted = true;
+        videoElement.volume = resolvedVolume;
+        videoElement.muted = shouldMuteActive;
         const play = videoElement.play();
         if (play && typeof play.catch === 'function') {
           play.catch(() => {});
         }
       } else {
+        videoElement.muted = true;
         videoElement.pause();
       }
     });
-  }, [activeFeedIndex, isMobile, videos]);
+  }, [
+    activeFeedIndex,
+    isMobile,
+    mobileMuted,
+    mobileVolume,
+    videos
+  ]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      setShowMobileVolume(false);
+      adjustingVolumeRef.current = false;
+    }
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      return;
+    }
+
+    setShowMobileVolume(false);
+    clearVolumeOverlayTimeout();
+    adjustingVolumeRef.current = false;
+  }, [activeFeedIndex, clearVolumeOverlayTimeout, isMobile]);
 
   useEffect(() => {
     if (!authNotice) {
@@ -1700,6 +1943,13 @@ export default function VideoGallery() {
       }
     },
     []
+  );
+
+  useEffect(
+    () => () => {
+      clearVolumeOverlayTimeout();
+    },
+    [clearVolumeOverlayTimeout]
   );
 
   useEffect(() => {
@@ -1818,10 +2068,26 @@ export default function VideoGallery() {
       </article>
     ));
 
+  const isVolumeEffectivelyMuted =
+    mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
+  const volumePercent = Math.round(mobileVolume * 100);
+  const volumeValueText = isVolumeEffectivelyMuted
+    ? 'Muted'
+    : `${volumePercent}%`;
+  const volumeIcon = isVolumeEffectivelyMuted
+    ? '🔇'
+    : mobileVolume < 0.4
+    ? '🔈'
+    : mobileVolume < 0.75
+    ? '🔉'
+    : '🔊';
+
   const renderMobileFeed = () =>
     videos.map((video, index) => {
       const interaction =
         interactionMap[video.id] ?? DEFAULT_INTERACTION_STATE;
+      const isActive = index === activeFeedIndex;
+      const shouldMuteVideo = !isActive || isVolumeEffectivelyMuted;
 
       return (
         <div
@@ -1837,10 +2103,60 @@ export default function VideoGallery() {
             className="mobile-feed__video"
             loop
             playsInline
-            muted
+            muted={shouldMuteVideo}
             preload="metadata"
           />
           <div className="mobile-feed__overlay">
+            {isActive && (
+              <div className="mobile-feed__volume">
+                <button
+                  type="button"
+                  className="mobile-feed__volume-toggle"
+                  onClick={handleVolumeToggle}
+                  aria-label={
+                    isVolumeEffectivelyMuted ? 'Enable sound' : 'Mute sound'
+                  }
+                  aria-pressed={!isVolumeEffectivelyMuted}
+                >
+                  <span aria-hidden="true">{volumeIcon}</span>
+                </button>
+
+                <div
+                  className={`mobile-feed__volume-slider${
+                    showMobileVolume
+                      ? ' mobile-feed__volume-slider--visible'
+                      : ''
+                  }`}
+                >
+                  <div
+                    className="mobile-feed__volume-track"
+                    role="slider"
+                    aria-label="Volume"
+                    aria-orientation="vertical"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={volumePercent}
+                    aria-valuetext={volumeValueText}
+                    tabIndex={0}
+                    onPointerDown={handleVolumePointerDown}
+                    onPointerMove={handleVolumePointerMove}
+                    onPointerUp={handleVolumePointerEnd}
+                    onPointerCancel={handleVolumePointerEnd}
+                    onPointerLeave={handleVolumePointerEnd}
+                    onKeyDown={handleVolumeKeyDown}
+                  >
+                    <div
+                      className="mobile-feed__volume-fill"
+                      style={{ height: `${volumePercent}%` }}
+                    />
+                    <div
+                      className="mobile-feed__volume-thumb"
+                      style={{ bottom: `${volumePercent}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
             <VideoOverlayContent
               variant="mobile"
               title={video.title}
