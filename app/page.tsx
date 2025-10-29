@@ -5,7 +5,16 @@ export default function HomePage() {
     <main className="page-shell">
       <header className="hero">
         <p className="hero__eyebrow">Samsar Studio</p>
-        <h1 className="hero__title">Published Video Gallery</h1>
+        <p className="hero__subtitle hero__cta">
+          <a
+            className="hero__cta-link"
+            href="https://app.samsar.one"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Create your own
+          </a>
+        </p>
         <p className="hero__subtitle">
           Explore the latest Samsar creations. Scroll the fluid masonry wall to uncover looped
           previews, original prompts, and full descriptions inside an immersive player.

@@ -79,6 +79,20 @@ a {
   color: var(--text-secondary);
 }
 
+.hero__cta {
+  margin: 0;
+}
+
+.hero__cta-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.hero__cta-link:hover {
+  text-decoration: underline;
+}
+
 .gallery {
   position: relative;
 }
