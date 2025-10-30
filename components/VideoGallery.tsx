@@ -897,6 +897,9 @@ export default function VideoGallery() {
   );
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const [activeFeedIndex, setActiveFeedIndex] = useState<number>(0);
+  const [pendingMobileVideoId, setPendingMobileVideoId] = useState<string | null>(
+    null
+  );
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isFetchingMore, setIsFetchingMore] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -1474,29 +1477,22 @@ export default function VideoGallery() {
 
   const ensureCommentsLoaded = useCallback(
     async (videoId: string) => {
-      let shouldRequest = false;
-
-      setCommentsMap((previous) => {
-        const current =
-          previous[videoId] ?? createInitialCommentState();
-        if (current.items.length === 0 && !current.isLoading) {
-          shouldRequest = true;
-          return {
-            ...previous,
-            [videoId]: {
-              ...current,
-              isLoading: true,
-              error: null
-            }
-          };
-        }
-
-        return previous;
-      });
-
-      if (!shouldRequest) {
+      const current =
+        commentsMap[videoId] ?? createInitialCommentState();
+      if (current.items.length > 0 || current.isLoading) {
         return;
       }
+
+      setCommentsMap((previous) => ({
+        ...previous,
+        [videoId]: {
+          ...(previous[videoId] ?? createInitialCommentState()),
+          isLoading: true,
+          error: null,
+          isPosting:
+            previous[videoId]?.isPosting ?? false
+        }
+      }));
 
       try {
         const response = await fetch(
@@ -1559,7 +1555,7 @@ export default function VideoGallery() {
         }));
       }
     },
-    []
+    [commentsMap]
   );
 
   const loadMoreComments = useCallback(
@@ -2032,11 +2028,55 @@ export default function VideoGallery() {
 
     const currentlyMobile = window.innerWidth <= MOBILE_BREAKPOINT;
     if (currentlyMobile) {
-      setCommentPanelVideoId(videoIdParam);
+      setPendingMobileVideoId(videoIdParam);
     } else {
       setSelectedVideoId(videoIdParam);
     }
   }, []);
+
+  useEffect(() => {
+    if (!isMobile || !pendingMobileVideoId) {
+      return;
+    }
+
+    const index = videos.findIndex(
+      (video) => video.id === pendingMobileVideoId
+    );
+    if (index === -1) {
+      return;
+    }
+
+    setActiveFeedIndex(index);
+
+    if (typeof window === 'undefined') {
+      setPendingMobileVideoId(null);
+      return;
+    }
+
+    const attemptScroll = () => {
+      const element = feedItemRefs.current[index];
+      if (!element || typeof element.scrollIntoView !== 'function') {
+        return false;
+      }
+
+      element.scrollIntoView({ behavior: 'auto', block: 'start' });
+      return true;
+    };
+
+    if (attemptScroll()) {
+      setPendingMobileVideoId(null);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      attemptScroll();
+      setPendingMobileVideoId(null);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isMobile, pendingMobileVideoId, videos]);
 
   useEffect(() => {
     if (initialVideoId === undefined) {
