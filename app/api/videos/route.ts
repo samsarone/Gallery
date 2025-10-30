@@ -144,10 +144,16 @@ export async function GET(request: NextRequest) {
       })
       .filter((item: unknown): item is Record<string, unknown> => Boolean(item));
 
+    const totalCount =
+      typeof payload?.totalCount === 'number' && Number.isFinite(payload.totalCount)
+        ? payload.totalCount
+        : null;
+
     return NextResponse.json({
       items: normalizedItems,
       nextCursor: typeof nextCursor === 'string' && nextCursor ? nextCursor : null,
-      hasMore: typeof hasMoreValue === 'boolean' ? hasMoreValue : Boolean(nextCursor)
+      hasMore: typeof hasMoreValue === 'boolean' ? hasMoreValue : Boolean(nextCursor),
+      totalCount
     });
   } catch (error) {
     console.error('Failed to load publications:', error);

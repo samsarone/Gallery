@@ -474,6 +474,7 @@ export default function VideoGallery() {
   const [showMobileVolume, setShowMobileVolume] = useState<boolean>(false);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const mobileFeedRef = useRef<HTMLDivElement | null>(null);
   const feedItemRefs = useRef<(HTMLDivElement | null)[]>([]);
   const isMountedRef = useRef<boolean>(false);
   const pendingCursorRef = useRef<string | null>(null);
@@ -1040,10 +1041,20 @@ export default function VideoGallery() {
               Boolean(item)
           );
 
+        const totalCountFromPayload =
+          typeof payload?.totalCount === 'number' &&
+          Number.isFinite(payload.totalCount)
+            ? payload.totalCount
+            : null;
+
+        let updatedVideos: PublishedVideo[] = [];
         setVideos((previous) => {
           if (loadMore || isBackgroundFetch) {
-            return mergeVideos(previous, normalized);
+            const merged = mergeVideos(previous, normalized);
+            updatedVideos = merged;
+            return merged;
           }
+          updatedVideos = normalized;
           return normalized;
         });
 
@@ -1061,11 +1072,17 @@ export default function VideoGallery() {
             : null;
         setNextCursor(newCursor);
 
-        const moreAvailable =
+        const hasMoreValue =
           typeof payload?.hasMore === 'boolean'
             ? payload.hasMore
             : typeof payload?.pagination?.hasMore === 'boolean'
             ? payload.pagination.hasMore
+            : null;
+        const moreAvailable =
+          hasMoreValue !== null
+            ? hasMoreValue
+            : totalCountFromPayload !== null
+            ? updatedVideos.length < totalCountFromPayload
             : Boolean(newCursor) && normalized.length > 0;
 
         setHasMore(moreAvailable);
@@ -1819,7 +1836,7 @@ export default function VideoGallery() {
   }, []);
 
   useEffect(() => {
-    if (!supportsIntersectionObserver) {
+    if (!supportsIntersectionObserver || isMobile) {
       return;
     }
 
@@ -1841,8 +1858,8 @@ export default function VideoGallery() {
           ) {
             observer.unobserve(entry.target);
             fetchVideos(nextCursor).finally(() => {
-              if (isMountedRef.current && sentinel) {
-                observer.observe(sentinel);
+              if (isMountedRef.current && sentinelRef.current) {
+                observer.observe(sentinelRef.current);
               }
             });
           }
@@ -1865,6 +1882,7 @@ export default function VideoGallery() {
     hasMore,
     isFetchingMore,
     isLoading,
+    isMobile,
     nextCursor,
     supportsIntersectionObserver
   ]);
@@ -1901,13 +1919,13 @@ export default function VideoGallery() {
     isMobile,
     loadMoreError,
     nextCursor,
-    videos.length
+    videos
   ]);
 
   useEffect(() => {
     feedItemRefs.current = feedItemRefs.current.slice(0, videos.length);
 
-    if (!isMobile) {
+    if (!isMobile || !supportsIntersectionObserver) {
       return;
     }
 
@@ -1918,20 +1936,39 @@ export default function VideoGallery() {
       return;
     }
 
+    const rootElement = mobileFeedRef.current;
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const indexValue = Number(
-              entry.target.getAttribute('data-index')
-            );
-            if (!Number.isNaN(indexValue)) {
-              setActiveFeedIndex(indexValue);
-            }
+          if (!entry.isIntersecting) {
+            return;
+          }
+
+          const indexValue = Number(entry.target.getAttribute('data-index'));
+          if (Number.isNaN(indexValue)) {
+            return;
+          }
+
+          setActiveFeedIndex(indexValue);
+
+          const remaining = videos.length - indexValue - 1;
+          if (
+            hasMore &&
+            nextCursor &&
+            remaining <= MOBILE_PREFETCH_THRESHOLD &&
+            !isLoading &&
+            !isFetchingMore &&
+            !pendingCursorRef.current &&
+            !loadMoreError
+          ) {
+            fetchVideos(nextCursor);
           }
         });
       },
-      { threshold: 0.6 }
+      {
+        root: rootElement ?? null,
+        threshold: 0.6
+      }
     );
 
     elements.forEach((element) => observer.observe(element));
@@ -1939,7 +1976,17 @@ export default function VideoGallery() {
     return () => {
       observer.disconnect();
     };
-  }, [isMobile, videos.length]);
+  }, [
+    fetchVideos,
+    hasMore,
+    isFetchingMore,
+    isLoading,
+    isMobile,
+    loadMoreError,
+    nextCursor,
+    supportsIntersectionObserver,
+    videos
+  ]);
 
   useEffect(() => {
     if (!isMobile) {
@@ -2372,7 +2419,9 @@ export default function VideoGallery() {
         {!isLoading && !error && videos.length > 0 && (
           <>
             {isMobile ? (
-              <div className="mobile-feed">{renderMobileFeed()}</div>
+              <div className="mobile-feed" ref={mobileFeedRef}>
+                {renderMobileFeed()}
+              </div>
             ) : (
               <div className="masonry-grid">{renderDesktopVideos()}</div>
             )}
