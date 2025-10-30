@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { normalizeComment, parseCommentsPayload } from '@/lib/comments';
+import type { VideoStats } from '@/lib/types';
 
 const apiServer = process.env.API_SERVER;
 
@@ -12,6 +14,119 @@ const getAuthToken = (request: NextRequest) =>
   request.cookies.get('authToken')?.value ??
   request.headers.get('authorization')?.split('Bearer ')[1] ??
   undefined;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const coerceNumber = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const sanitized = value.replace(/,/g, '');
+    const parsed = Number.parseFloat(sanitized);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
+};
+
+const STAT_KEY_CANDIDATES: Record<
+  keyof VideoStats,
+  string[]
+> = {
+  likes: [
+    'likes',
+    'likesCount',
+    'likes_count',
+    'likesTotal',
+    'likes_total',
+    'metrics.likes',
+    'metrics.likesCount',
+    'interactions.likes',
+    'engagement.likes'
+  ],
+  comments: [
+    'comments',
+    'commentsCount',
+    'comments_count',
+    'commentCount',
+    'comment_count',
+    'replyCount',
+    'reply_count',
+    'metrics.comments',
+    'metrics.commentsCount',
+    'interactions.comments',
+    'engagement.comments'
+  ],
+  shares: [
+    'shares',
+    'sharesCount',
+    'shares_count',
+    'shareCount',
+    'share_count',
+    'metrics.shares',
+    'metrics.sharesCount',
+    'interactions.shares',
+    'engagement.shares'
+  ]
+};
+
+const extractStatFromContainers = (
+  containers: Record<string, unknown>[],
+  keyPath: string
+): number | undefined => {
+  const segments = keyPath.split('.');
+
+  for (const container of containers) {
+    let current: unknown = container;
+    for (const segment of segments) {
+      if (!isRecord(current) || !(segment in current)) {
+        current = undefined;
+        break;
+      }
+      current = current[segment];
+    }
+
+    const value = coerceNumber(current);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+
+  return undefined;
+};
+
+const extractStats = (payload: unknown): Partial<VideoStats> => {
+  if (!isRecord(payload)) {
+    return {};
+  }
+
+  const containers: Record<string, unknown>[] = [payload];
+  const nestedKeys = ['stats', 'metrics', 'interactions', 'engagement', 'meta'];
+
+  nestedKeys.forEach((key) => {
+    const nested = payload[key];
+    if (isRecord(nested)) {
+      containers.push(nested);
+    }
+  });
+
+  const result: Partial<VideoStats> = {};
+
+  (Object.keys(STAT_KEY_CANDIDATES) as (keyof VideoStats)[]).forEach((stat) => {
+    for (const candidate of STAT_KEY_CANDIDATES[stat]) {
+      const value = extractStatFromContainers(containers, candidate);
+      if (value !== undefined) {
+        result[stat] = Math.max(0, Math.round(value));
+        break;
+      }
+    }
+  });
+
+  return result;
+};
 
 export async function GET(
   request: NextRequest,
@@ -71,7 +186,28 @@ export async function GET(
     }
 
     const payload = await response.json();
-    return NextResponse.json(payload);
+
+    if (
+      payload &&
+      typeof payload === 'object' &&
+      'error' in payload &&
+      typeof (payload as { error?: unknown }).error === 'string'
+    ) {
+      return NextResponse.json(
+        { error: (payload as { error?: string }).error ?? 'Could not load comments.' },
+        { status: 502 }
+      );
+    }
+
+    const parsed = parseCommentsPayload(payload);
+    if (parsed.items.length === 0) {
+      console.warn(`No comments parsed for video ${videoId}.`, {
+        payloadSnippet: Array.isArray(payload)
+          ? payload.slice(0, 3)
+          : payload
+      });
+    }
+    return NextResponse.json(parsed);
   } catch (error) {
     console.error('Failed to load comments:', error);
     return NextResponse.json(
@@ -141,7 +277,28 @@ export async function POST(
     }
 
     const payload = await response.json();
-    return NextResponse.json(payload, { status: 201 });
+    const commentSource =
+      payload && typeof payload === 'object' && 'comment' in payload
+        ? (payload as { comment: unknown }).comment
+        : payload;
+
+    const comment = normalizeComment(commentSource);
+    if (!comment) {
+      return NextResponse.json(
+        { error: 'Received an unexpected response while creating the comment.' },
+        { status: 502 }
+      );
+    }
+
+    const stats = extractStats(payload);
+
+    return NextResponse.json(
+      {
+        comment,
+        stats
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error('Failed to create comment:', error);
     return NextResponse.json(
