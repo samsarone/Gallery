@@ -458,6 +458,7 @@ a {
   column-gap: 1.75rem;
   column-fill: balance;
   transition: column-count 220ms ease;
+  padding-top: 1.75rem;
 }
 
 .video-card {
@@ -1542,6 +1543,7 @@ a {
 
   .masonry-grid {
     column-gap: 1.25rem;
+    padding-top: 1.4rem;
   }
 
   .video-card {

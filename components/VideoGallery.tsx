@@ -706,17 +706,13 @@ const dispatchAuthModal = (view: 'login' | 'register' = 'login') => {
 };
 
 const getShareUrl = (video: PublishedVideo) => {
-  if (video.videoUrl) {
-    return video.videoUrl;
-  }
-
   if (typeof window !== 'undefined') {
     const url = new URL(window.location.href);
     url.searchParams.set('videoId', video.id);
     return url.toString();
   }
 
-  return '';
+  return video.videoUrl || '';
 };
 
 interface CommentDrawerProps {
@@ -896,6 +892,9 @@ export default function VideoGallery() {
   const [commentPanelVideoId, setCommentPanelVideoId] = useState<string | null>(
     null
   );
+  const [initialVideoId, setInitialVideoId] = useState<string | null | undefined>(
+    undefined
+  );
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const [activeFeedIndex, setActiveFeedIndex] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -933,6 +932,7 @@ export default function VideoGallery() {
   );
   const lastAudibleVolumeRef = useRef<number>(DEFAULT_MOBILE_VOLUME);
   const adjustingVolumeRef = useRef<boolean>(false);
+  const hasBootstrappedRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1352,22 +1352,25 @@ export default function VideoGallery() {
   );
 
   const fetchVideos = useCallback(
-    async (cursor?: string | null) => {
+    async (cursor?: string | null, options?: { background?: boolean }) => {
       if (!isMountedRef.current) {
         return;
       }
 
       const loadMore = Boolean(cursor);
+      const isBackgroundFetch = Boolean(options?.background);
       pendingCursorRef.current = cursor ?? null;
 
       if (loadMore) {
         setIsFetchingMore(true);
         setLoadMoreError(null);
       } else {
-        setIsLoading(true);
+        if (!isBackgroundFetch) {
+          setIsLoading(true);
+          setHasMore(true);
+          setNextCursor(null);
+        }
         setError(null);
-        setHasMore(true);
-        setNextCursor(null);
       }
 
       try {
@@ -1382,9 +1385,7 @@ export default function VideoGallery() {
         });
 
         if (!response.ok) {
-          throw new Error(
-            `Failed to load videos (${response.status})`
-          );
+          throw new Error(`Failed to load videos (${response.status})`);
         }
 
         const payload = await response.json();
@@ -1403,9 +1404,12 @@ export default function VideoGallery() {
               Boolean(item)
           );
 
-        setVideos((previous) =>
-          loadMore ? mergeVideos(previous, normalized) : normalized
-        );
+        setVideos((previous) => {
+          if (loadMore || isBackgroundFetch) {
+            return mergeVideos(previous, normalized);
+          }
+          return normalized;
+        });
 
         const rawNextCursor =
           payload?.nextCursor ??
@@ -1442,6 +1446,8 @@ export default function VideoGallery() {
               : 'Failed to load more videos'
           );
           setHasMore(false);
+        } else if (isBackgroundFetch) {
+          console.error('Failed to refresh videos:', fetchError);
         } else {
           setError(
             fetchError instanceof Error
@@ -1458,7 +1464,7 @@ export default function VideoGallery() {
 
         if (cursor) {
           setIsFetchingMore(false);
-        } else {
+        } else if (!isBackgroundFetch) {
           setIsLoading(false);
         }
       }
@@ -1641,6 +1647,61 @@ export default function VideoGallery() {
       }
     },
     [commentsMap]
+  );
+
+  const fetchSingleVideo = useCallback(
+    async (videoId: string) => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const response = await fetch(`/api/videos/${videoId}`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+
+        if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Failed to load video.');
+        }
+
+        const payload = await response.json();
+        const candidate =
+          payload && typeof payload === 'object' && 'publication' in payload
+            ? (payload as { publication: unknown }).publication
+            : payload;
+
+        const normalized = normalizeVideo(candidate);
+        if (!normalized) {
+          throw new Error('Video not found.');
+        }
+
+        setVideos((previous) => {
+          const filtered = previous.filter((video) => video.id !== normalized.id);
+          return [normalized, ...filtered];
+        });
+
+        setError(null);
+        void ensureCommentsLoaded(videoId);
+      } catch (singleError) {
+        if (!isMountedRef.current) {
+          return;
+        }
+
+        const message =
+          singleError instanceof Error
+            ? singleError.message
+            : 'Failed to load video.';
+        setError(message);
+        setVideos([]);
+      } finally {
+        if (!isMountedRef.current) {
+          return;
+        }
+        setIsLoading(false);
+      }
+    },
+    [ensureCommentsLoaded]
   );
 
   const submitComment = useCallback(
@@ -1956,8 +2017,49 @@ export default function VideoGallery() {
   }, []);
 
   useEffect(() => {
-    fetchVideos();
-  }, [fetchVideos]);
+    if (typeof window === 'undefined') {
+      setInitialVideoId(null);
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    const videoIdParam = url.searchParams.get('videoId');
+    setInitialVideoId(videoIdParam);
+
+    if (!videoIdParam) {
+      return;
+    }
+
+    const currentlyMobile = window.innerWidth <= MOBILE_BREAKPOINT;
+    if (currentlyMobile) {
+      setCommentPanelVideoId(videoIdParam);
+    } else {
+      setSelectedVideoId(videoIdParam);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (initialVideoId === undefined) {
+      return;
+    }
+
+    if (hasBootstrappedRef.current) {
+      return;
+    }
+    hasBootstrappedRef.current = true;
+
+    if (initialVideoId) {
+      void (async () => {
+        try {
+          await fetchSingleVideo(initialVideoId);
+        } finally {
+          fetchVideos(undefined, { background: true });
+        }
+      })();
+    } else {
+      fetchVideos();
+    }
+  }, [fetchSingleVideo, fetchVideos, initialVideoId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -2184,6 +2286,14 @@ export default function VideoGallery() {
   }, [isMobile, selectedVideoId]);
 
   useEffect(() => {
+    if (!selectedVideoId) {
+      return;
+    }
+
+    void ensureCommentsLoaded(selectedVideoId);
+  }, [selectedVideoId, ensureCommentsLoaded]);
+
+  useEffect(() => {
     if (!commentPanelVideoId) {
       return;
     }
@@ -2206,6 +2316,25 @@ export default function VideoGallery() {
       document.body.classList.remove('no-scroll');
     };
   }, [commentPanelVideoId, isMobile]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const activeVideoId =
+      selectedVideoId ?? (isMobile ? commentPanelVideoId : null) ?? null;
+
+    const url = new URL(window.location.href);
+    if (activeVideoId) {
+      url.searchParams.set('videoId', activeVideoId);
+    } else {
+      url.searchParams.delete('videoId');
+    }
+
+    const updated = `${url.pathname}${url.search}${url.hash}`;
+    window.history.replaceState({}, '', updated);
+  }, [commentPanelVideoId, isMobile, selectedVideoId]);
 
   const videoById = useMemo(() => {
     return new Map(videos.map((video) => [video.id, video]));
@@ -2255,13 +2384,17 @@ export default function VideoGallery() {
       <article
         key={video.id}
         className="video-card"
-        onClick={() => setSelectedVideoId(video.id)}
+        onClick={() => {
+          setSelectedVideoId(video.id);
+          void ensureCommentsLoaded(video.id);
+        }}
         tabIndex={0}
         role="button"
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
             setSelectedVideoId(video.id);
+            void ensureCommentsLoaded(video.id);
           }
         }}
       >
@@ -2413,6 +2546,7 @@ export default function VideoGallery() {
                 className="mobile-feed__action"
                 onClick={() => {
                   setCommentPanelVideoId(video.id);
+                  void ensureCommentsLoaded(video.id);
                 }}
               >
                 <span>💬</span>
