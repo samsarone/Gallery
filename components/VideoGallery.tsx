@@ -619,6 +619,32 @@ export default function VideoGallery() {
     }, MOBILE_VOLUME_HIDE_DELAY);
   }, [showVolumeOverlay]);
 
+  const playMobileVideo = useCallback((videoElement: HTMLVideoElement) => {
+    const playAttempt = videoElement.play();
+    if (playAttempt && typeof playAttempt.catch === 'function') {
+      playAttempt.catch(() => {});
+    }
+  }, []);
+
+  const ensureMobileVideoPlaying = useCallback((index: number) => {
+    const container = feedItemRefs.current[index];
+    const videoElement =
+      container?.querySelector('video') ?? null;
+    if (!(videoElement instanceof HTMLVideoElement)) {
+      return;
+    }
+
+    playMobileVideo(videoElement);
+  }, [playMobileVideo]);
+
+  const ensureActiveMobileVideoPlaying = useCallback(() => {
+    if (!isMobile) {
+      return;
+    }
+
+    ensureMobileVideoPlaying(activeFeedIndex);
+  }, [activeFeedIndex, ensureMobileVideoPlaying, isMobile]);
+
   const commitMobileVolume = useCallback(
     (nextVolume: number) => {
       const clamped = clampVolume(nextVolume);
@@ -644,14 +670,13 @@ export default function VideoGallery() {
         activeElement.muted = shouldMute;
 
         if (!shouldMute) {
-          const playAttempt = activeElement.play();
-          if (playAttempt && typeof playAttempt.catch === 'function') {
-            playAttempt.catch(() => {});
-          }
+          playMobileVideo(activeElement);
         }
+      } else if (!shouldMute) {
+        ensureActiveMobileVideoPlaying();
       }
     },
-    [activeFeedIndex, isMobile]
+    [activeFeedIndex, ensureActiveMobileVideoPlaying, isMobile, playMobileVideo]
   );
 
   useEffect(() => {
@@ -743,7 +768,14 @@ export default function VideoGallery() {
     }
 
     revealVolumeOverlay();
-  }, [commitMobileVolume, mobileMuted, mobileVolume, revealVolumeOverlay]);
+    ensureActiveMobileVideoPlaying();
+  }, [
+    commitMobileVolume,
+    ensureActiveMobileVideoPlaying,
+    mobileMuted,
+    mobileVolume,
+    revealVolumeOverlay
+  ]);
 
   const handleVolumePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -776,8 +808,14 @@ export default function VideoGallery() {
       }
 
       updateVolumeFromTrack(target, event.clientY);
+      ensureActiveMobileVideoPlaying();
     },
-    [isMobile, showVolumeOverlay, updateVolumeFromTrack]
+    [
+      ensureActiveMobileVideoPlaying,
+      isMobile,
+      showVolumeOverlay,
+      updateVolumeFromTrack
+    ]
   );
 
   const handleVolumePointerMove = useCallback(
@@ -788,8 +826,9 @@ export default function VideoGallery() {
 
       event.preventDefault();
       updateVolumeFromTrack(event.currentTarget, event.clientY);
+      ensureActiveMobileVideoPlaying();
     },
-    [updateVolumeFromTrack]
+    [ensureActiveMobileVideoPlaying, updateVolumeFromTrack]
   );
 
   const handleVolumePointerEnd = useCallback(
@@ -827,17 +866,31 @@ export default function VideoGallery() {
       const resolvedVolume = shouldMute ? 0 : mobileVolume;
 
       videoElement.volume = resolvedVolume;
+      videoElement.muted = shouldMute;
 
-      if (shouldMute && !videoElement.muted) {
-        videoElement.muted = true;
+      const container = videoElement.closest('.mobile-feed__item');
+      const indexAttribute = container?.getAttribute('data-index');
+      const parsedIndex =
+        indexAttribute != null ? Number.parseInt(indexAttribute, 10) : NaN;
+
+      if (!Number.isNaN(parsedIndex) && parsedIndex === activeFeedIndex) {
+        playMobileVideo(videoElement);
       }
     },
-    [isMobile, mobileMuted, mobileVolume]
+    [activeFeedIndex, isMobile, mobileMuted, mobileVolume, playMobileVideo]
   );
 
   const handleMobileVideoClick = useCallback(
     (index: number) => {
-      if (!isMobile || index !== activeFeedIndex) {
+      if (!isMobile) {
+        return;
+      }
+
+      const isCurrentActive = index === activeFeedIndex;
+      ensureMobileVideoPlaying(index);
+
+      if (!isCurrentActive) {
+        setActiveFeedIndex(index);
         return;
       }
 
@@ -858,10 +911,14 @@ export default function VideoGallery() {
 
       commitMobileVolume(targetVolume);
       revealVolumeOverlay();
+      ensureActiveMobileVideoPlaying();
     },
     [
       activeFeedIndex,
       commitMobileVolume,
+      ensureActiveMobileVideoPlaying,
+      ensureMobileVideoPlaying,
+      setActiveFeedIndex,
       isMobile,
       mobileMuted,
       mobileVolume,
@@ -901,8 +958,14 @@ export default function VideoGallery() {
       event.preventDefault();
       commitMobileVolume(nextVolume);
       revealVolumeOverlay();
+      ensureActiveMobileVideoPlaying();
     },
-    [commitMobileVolume, mobileVolume, revealVolumeOverlay]
+    [
+      commitMobileVolume,
+      ensureActiveMobileVideoPlaying,
+      mobileVolume,
+      revealVolumeOverlay
+    ]
   );
 
   const fetchVideos = useCallback(
@@ -1898,10 +1961,7 @@ export default function VideoGallery() {
 
       if (index === activeFeedIndex) {
         videoElement.muted = shouldMuteActive;
-        const play = videoElement.play();
-        if (play && typeof play.catch === 'function') {
-          play.catch(() => {});
-        }
+        playMobileVideo(videoElement);
       } else {
         videoElement.muted = true;
         videoElement.pause();
@@ -1912,6 +1972,7 @@ export default function VideoGallery() {
     isMobile,
     mobileMuted,
     mobileVolume,
+    playMobileVideo,
     videos
   ]);
 
