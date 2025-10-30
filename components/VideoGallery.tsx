@@ -35,10 +35,18 @@ interface InteractionState {
   sharing: boolean;
 }
 
+type NavigatorWithConnection = Navigator & {
+  connection?: {
+    saveData?: boolean;
+  };
+};
+
 const DESKTOP_PAGE_SIZE = 24;
 const MOBILE_INITIAL_PAGE_SIZE = 5;
 const MOBILE_PAGE_SIZE = 5;
 const MOBILE_PREFETCH_THRESHOLD = 2;
+const MOBILE_PRELOAD_AHEAD = 2;
+const MOBILE_PRELOAD_BEHIND = 1;
 const MOBILE_BREAKPOINT = 768;
 const DEFAULT_MOBILE_VOLUME = 0.65;
 const MIN_AUDIBLE_VOLUME = 0.02;
@@ -488,6 +496,8 @@ export default function VideoGallery() {
   const lastAudibleVolumeRef = useRef<number>(DEFAULT_MOBILE_VOLUME);
   const adjustingVolumeRef = useRef<boolean>(false);
   const hasBootstrappedRef = useRef<boolean>(false);
+  const prefetchedMobileVideoIdsRef = useRef<Set<string>>(new Set());
+  const initialMobilePrefetchRequestedRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -645,6 +655,68 @@ export default function VideoGallery() {
 
     ensureMobileVideoPlaying(activeFeedIndex);
   }, [activeFeedIndex, ensureMobileVideoPlaying, isMobile]);
+
+  const prefetchMobileVideoAt = useCallback(
+    (index: number) => {
+      if (!isMobile || typeof window === 'undefined') {
+        return;
+      }
+
+      if (index < 0 || index >= videos.length) {
+        return;
+      }
+
+      const video = videos[index];
+      if (!video || prefetchedMobileVideoIdsRef.current.has(video.id)) {
+        return;
+      }
+
+      const connection =
+        typeof navigator !== 'undefined'
+          ? (navigator as NavigatorWithConnection).connection
+          : undefined;
+      if (connection?.saveData) {
+        return;
+      }
+
+      const container = feedItemRefs.current[index];
+      const element = container?.querySelector('video');
+      if (!(element instanceof HTMLVideoElement)) {
+        return;
+      }
+
+      prefetchedMobileVideoIdsRef.current.add(video.id);
+
+      if (element.preload !== 'auto') {
+        element.preload = 'auto';
+      }
+
+      if (element.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) {
+        return;
+      }
+
+      const handleCanPlay = () => {
+        element.removeEventListener('canplay', handleCanPlay);
+        element.pause();
+        try {
+          element.currentTime = 0;
+        } catch {
+          // Some browsers throw if currentTime is set before metadata is ready.
+        }
+      };
+
+      element.addEventListener('canplay', handleCanPlay, { once: true });
+
+      try {
+        element.load();
+      } catch {
+        // Ignore load errors on browsers that do not support manual preloading.
+        element.removeEventListener('canplay', handleCanPlay);
+        prefetchedMobileVideoIdsRef.current.delete(video.id);
+      }
+    },
+    [isMobile, videos]
+  );
 
   const commitMobileVolume = useCallback(
     (nextVolume: number) => {
@@ -1002,9 +1074,9 @@ export default function VideoGallery() {
           setIsLoading(true);
           setHasMore(true);
           setNextCursor(null);
-        }
-        if (!isBackgroundFetch) {
           setError(null);
+          prefetchedMobileVideoIdsRef.current.clear();
+          initialMobilePrefetchRequestedRef.current = false;
         }
       }
 
@@ -1890,6 +1962,34 @@ export default function VideoGallery() {
   useEffect(() => {
     if (
       !isMobile ||
+      initialMobilePrefetchRequestedRef.current ||
+      isLoading ||
+      isFetchingMore ||
+      loadMoreError ||
+      !videos.length ||
+      !hasMore ||
+      !nextCursor ||
+      pendingCursorRef.current
+    ) {
+      return;
+    }
+
+    initialMobilePrefetchRequestedRef.current = true;
+    fetchVideos(nextCursor, { background: true });
+  }, [
+    fetchVideos,
+    hasMore,
+    isFetchingMore,
+    isLoading,
+    isMobile,
+    loadMoreError,
+    nextCursor,
+    videos.length
+  ]);
+
+  useEffect(() => {
+    if (
+      !isMobile ||
       !hasMore ||
       !nextCursor ||
       isLoading ||
@@ -1923,6 +2023,26 @@ export default function VideoGallery() {
   ]);
 
   useEffect(() => {
+    if (!isMobile || videos.length === 0) {
+      return;
+    }
+
+    const startIndex = Math.max(0, activeFeedIndex - MOBILE_PRELOAD_BEHIND);
+    const endIndex = Math.min(
+      videos.length - 1,
+      activeFeedIndex + MOBILE_PRELOAD_AHEAD
+    );
+
+    for (let index = startIndex; index <= endIndex; index += 1) {
+      if (index === activeFeedIndex) {
+        continue;
+      }
+
+      prefetchMobileVideoAt(index);
+    }
+  }, [activeFeedIndex, isMobile, prefetchMobileVideoAt, videos.length]);
+
+  useEffect(() => {
     feedItemRefs.current = feedItemRefs.current.slice(0, videos.length);
 
     if (!isMobile || !supportsIntersectionObserver) {
@@ -1950,6 +2070,7 @@ export default function VideoGallery() {
           }
 
           setActiveFeedIndex(indexValue);
+          ensureMobileVideoPlaying(indexValue);
 
           const remaining = videos.length - indexValue - 1;
           if (
@@ -1979,6 +2100,7 @@ export default function VideoGallery() {
   }, [
     fetchVideos,
     hasMore,
+    ensureMobileVideoPlaying,
     isFetchingMore,
     isLoading,
     isMobile,
@@ -2298,7 +2420,7 @@ export default function VideoGallery() {
             muted={shouldMuteVideo}
             onLoadedMetadata={handleMobileVideoLoadedMetadata}
             onClick={() => handleMobileVideoClick(index)}
-            preload="metadata"
+            preload={isActive ? 'auto' : 'metadata'}
           />
           <div className="mobile-feed__overlay">
             {isActive && (
