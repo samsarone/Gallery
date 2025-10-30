@@ -53,6 +53,7 @@ const MIN_AUDIBLE_VOLUME = 0.02;
 const MOBILE_VOLUME_HIDE_DELAY = 2200;
 const VOLUME_STORAGE_KEY = 'samsar-gallery/mobile-volume';
 const MUTED_STORAGE_KEY = 'samsar-gallery/mobile-muted';
+const AUTOPLAY_STORAGE_KEY = 'samsar-gallery/mobile-autoplay';
 
 const clampVolume = (value: number): number =>
   Math.min(1, Math.max(0, value));
@@ -478,7 +479,9 @@ export default function VideoGallery() {
   const [mobileVolume, setMobileVolume] = useState<number>(
     DEFAULT_MOBILE_VOLUME
   );
-  const [mobileMuted, setMobileMuted] = useState<boolean>(true);
+  const [mobileMuted, setMobileMuted] = useState<boolean>(false);
+  const [isMobileAutoplayEnabled, setIsMobileAutoplayEnabled] =
+    useState<boolean>(true);
   const [showMobileVolume, setShowMobileVolume] = useState<boolean>(false);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -496,6 +499,7 @@ export default function VideoGallery() {
   const lastAudibleVolumeRef = useRef<number>(DEFAULT_MOBILE_VOLUME);
   const adjustingVolumeRef = useRef<boolean>(false);
   const hasBootstrappedRef = useRef<boolean>(false);
+  const autoplayBlockedRef = useRef<boolean>(false);
   const prefetchedMobileVideoIdsRef = useRef<Set<string>>(new Set());
   const initialMobilePrefetchRequestedRef = useRef<boolean>(false);
 
@@ -528,6 +532,7 @@ export default function VideoGallery() {
 
     let storedVolumeRaw: string | null = null;
     let storedMutedRaw: string | null = null;
+    let storedAutoplayRaw: string | null = null;
 
     for (const storage of storages) {
       if (storedVolumeRaw === null) {
@@ -542,6 +547,13 @@ export default function VideoGallery() {
           storedMutedRaw = storage.getItem(MUTED_STORAGE_KEY);
         } catch {
           storedMutedRaw = null;
+        }
+      }
+      if (storedAutoplayRaw === null) {
+        try {
+          storedAutoplayRaw = storage.getItem(AUTOPLAY_STORAGE_KEY);
+        } catch {
+          storedAutoplayRaw = null;
         }
       }
     }
@@ -578,6 +590,19 @@ export default function VideoGallery() {
 
     if (effectiveMuted !== null) {
       setMobileMuted(effectiveMuted);
+    }
+
+    let restoredAutoplay: boolean | null = null;
+    if (storedAutoplayRaw !== null) {
+      if (storedAutoplayRaw === '1' || storedAutoplayRaw === 'true') {
+        restoredAutoplay = true;
+      } else if (storedAutoplayRaw === '0' || storedAutoplayRaw === 'false') {
+        restoredAutoplay = false;
+      }
+    }
+
+    if (restoredAutoplay !== null) {
+      setIsMobileAutoplayEnabled(restoredAutoplay);
     }
   }, []);
 
@@ -630,31 +655,76 @@ export default function VideoGallery() {
     }, MOBILE_VOLUME_HIDE_DELAY);
   }, [showVolumeOverlay]);
 
-  const playMobileVideo = useCallback((videoElement: HTMLVideoElement) => {
-    const playAttempt = videoElement.play();
-    if (playAttempt && typeof playAttempt.catch === 'function') {
-      playAttempt.catch(() => {});
-    }
-  }, []);
+  const playMobileVideo = useCallback(
+    (videoElement: HTMLVideoElement, options?: { force?: boolean }) => {
+      if (!(videoElement instanceof HTMLMediaElement)) {
+        return;
+      }
 
-  const ensureMobileVideoPlaying = useCallback((index: number) => {
-    const container = feedItemRefs.current[index];
-    const videoElement =
-      container?.querySelector('video') ?? null;
-    if (!(videoElement instanceof HTMLVideoElement)) {
-      return;
-    }
+      const shouldForce = Boolean(options?.force);
+      if (!shouldForce) {
+        if (!isMobile || !isMobileAutoplayEnabled) {
+          return;
+        }
+        if (autoplayBlockedRef.current) {
+          return;
+        }
+      } else {
+        autoplayBlockedRef.current = false;
+      }
 
-    playMobileVideo(videoElement);
-  }, [playMobileVideo]);
+      try {
+        const playAttempt = videoElement.play();
+        if (playAttempt && typeof playAttempt.catch === 'function') {
+          playAttempt.catch((error) => {
+            if (
+              error instanceof DOMException &&
+              (error.name === 'NotAllowedError' || error.name === 'NotSupportedError')
+            ) {
+              if (!shouldForce) {
+                autoplayBlockedRef.current = true;
+              }
+            }
+          });
+        }
+      } catch (error) {
+        if (
+          error instanceof DOMException &&
+          (error.name === 'NotAllowedError' || error.name === 'NotSupportedError')
+        ) {
+          if (!shouldForce) {
+            autoplayBlockedRef.current = true;
+          }
+        }
+      }
+    },
+    [isMobile, isMobileAutoplayEnabled]
+  );
 
-  const ensureActiveMobileVideoPlaying = useCallback(() => {
-    if (!isMobile) {
-      return;
-    }
+  const ensureMobileVideoPlaying = useCallback(
+    (index: number, options?: { force?: boolean }) => {
+      const container = feedItemRefs.current[index];
+      const videoElement =
+        container?.querySelector('video') ?? null;
+      if (!(videoElement instanceof HTMLVideoElement)) {
+        return;
+      }
 
-    ensureMobileVideoPlaying(activeFeedIndex);
-  }, [activeFeedIndex, ensureMobileVideoPlaying, isMobile]);
+      playMobileVideo(videoElement, options);
+    },
+    [playMobileVideo]
+  );
+
+  const ensureActiveMobileVideoPlaying = useCallback(
+    (options?: { force?: boolean }) => {
+      if (!isMobile) {
+        return;
+      }
+
+      ensureMobileVideoPlaying(activeFeedIndex, options);
+    },
+    [activeFeedIndex, ensureMobileVideoPlaying, isMobile]
+  );
 
   const prefetchMobileVideoAt = useCallback(
     (index: number) => {
@@ -782,16 +852,18 @@ export default function VideoGallery() {
     const volumeValue = String(mobileVolume);
     const mutedValue =
       mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME ? '1' : '0';
+    const autoplayValue = isMobileAutoplayEnabled ? '1' : '0';
 
     storages.forEach((storage) => {
       try {
         storage.setItem(VOLUME_STORAGE_KEY, volumeValue);
         storage.setItem(MUTED_STORAGE_KEY, mutedValue);
+        storage.setItem(AUTOPLAY_STORAGE_KEY, autoplayValue);
       } catch {
         // Storage writes might fail (e.g., quota exceeded). Ignore.
       }
     });
-  }, [mobileMuted, mobileVolume]);
+  }, [isMobileAutoplayEnabled, mobileMuted, mobileVolume]);
 
   const handleModalVolumeChange = useCallback(
     (volume: number, muted: boolean) => {
@@ -824,7 +896,9 @@ export default function VideoGallery() {
   );
 
   const handleVolumeToggle = useCallback(() => {
-    if (mobileMuted) {
+    const willUnmute = mobileMuted;
+
+    if (willUnmute) {
       const fallback =
         mobileVolume > MIN_AUDIBLE_VOLUME
           ? mobileVolume
@@ -841,10 +915,13 @@ export default function VideoGallery() {
     }
 
     revealVolumeOverlay();
-    ensureActiveMobileVideoPlaying();
+    ensureActiveMobileVideoPlaying(
+      willUnmute && isMobileAutoplayEnabled ? { force: true } : undefined
+    );
   }, [
     commitMobileVolume,
     ensureActiveMobileVideoPlaying,
+    isMobileAutoplayEnabled,
     mobileMuted,
     mobileVolume,
     revealVolumeOverlay
@@ -881,10 +958,13 @@ export default function VideoGallery() {
       }
 
       updateVolumeFromTrack(target, event.clientY);
-      ensureActiveMobileVideoPlaying();
+      ensureActiveMobileVideoPlaying(
+        isMobileAutoplayEnabled ? { force: true } : undefined
+      );
     },
     [
       ensureActiveMobileVideoPlaying,
+      isMobileAutoplayEnabled,
       isMobile,
       showVolumeOverlay,
       updateVolumeFromTrack
@@ -899,9 +979,15 @@ export default function VideoGallery() {
 
       event.preventDefault();
       updateVolumeFromTrack(event.currentTarget, event.clientY);
-      ensureActiveMobileVideoPlaying();
+      ensureActiveMobileVideoPlaying(
+        isMobileAutoplayEnabled ? { force: true } : undefined
+      );
     },
-    [ensureActiveMobileVideoPlaying, updateVolumeFromTrack]
+    [
+      ensureActiveMobileVideoPlaying,
+      isMobileAutoplayEnabled,
+      updateVolumeFromTrack
+    ]
   );
 
   const handleVolumePointerEnd = useCallback(
@@ -959,43 +1045,61 @@ export default function VideoGallery() {
         return;
       }
 
+      const container = feedItemRefs.current[index];
+      const videoElement =
+        container?.querySelector('video') ?? null;
+      if (!(videoElement instanceof HTMLVideoElement)) {
+        return;
+      }
+
       const isCurrentActive = index === activeFeedIndex;
-      ensureMobileVideoPlaying(index);
+
+      const ensureAudibleVolume = () => {
+        if (!mobileMuted && mobileVolume > MIN_AUDIBLE_VOLUME) {
+          return;
+        }
+
+        const fallback =
+          mobileVolume > MIN_AUDIBLE_VOLUME
+            ? mobileVolume
+            : lastAudibleVolumeRef.current || DEFAULT_MOBILE_VOLUME;
+        const target =
+          fallback > MIN_AUDIBLE_VOLUME ? fallback : DEFAULT_MOBILE_VOLUME;
+
+        commitMobileVolume(target);
+      };
+
+      if (!isMobileAutoplayEnabled) {
+        setActiveFeedIndex(index);
+        setIsMobileAutoplayEnabled(true);
+        ensureAudibleVolume();
+        ensureMobileVideoPlaying(index, { force: true });
+        return;
+      }
 
       if (!isCurrentActive) {
         setActiveFeedIndex(index);
+        ensureMobileVideoPlaying(index, { force: true });
         return;
       }
 
-      const muted = mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
-      if (!muted) {
+      if (videoElement.paused) {
+        ensureAudibleVolume();
+        ensureMobileVideoPlaying(index, { force: true });
         return;
       }
 
-      const fallbackVolume =
-        mobileVolume > MIN_AUDIBLE_VOLUME
-          ? mobileVolume
-          : lastAudibleVolumeRef.current;
-      const targetVolume = clampVolume(
-        fallbackVolume && fallbackVolume > MIN_AUDIBLE_VOLUME
-          ? fallbackVolume
-          : DEFAULT_MOBILE_VOLUME
-      );
-
-      commitMobileVolume(targetVolume);
-      revealVolumeOverlay();
-      ensureActiveMobileVideoPlaying();
+      videoElement.pause();
+      setIsMobileAutoplayEnabled(false);
     },
     [
       activeFeedIndex,
       commitMobileVolume,
-      ensureActiveMobileVideoPlaying,
       ensureMobileVideoPlaying,
-      setActiveFeedIndex,
       isMobile,
+      isMobileAutoplayEnabled,
       mobileMuted,
-      mobileVolume,
-      revealVolumeOverlay
+      mobileVolume
     ]
   );
 
@@ -1031,11 +1135,14 @@ export default function VideoGallery() {
       event.preventDefault();
       commitMobileVolume(nextVolume);
       revealVolumeOverlay();
-      ensureActiveMobileVideoPlaying();
+      ensureActiveMobileVideoPlaying(
+        isMobileAutoplayEnabled ? { force: true } : undefined
+      );
     },
     [
       commitMobileVolume,
       ensureActiveMobileVideoPlaying,
+      isMobileAutoplayEnabled,
       mobileVolume,
       revealVolumeOverlay
     ]
@@ -2130,7 +2237,11 @@ export default function VideoGallery() {
 
       if (index === activeFeedIndex) {
         videoElement.muted = shouldMuteActive;
-        playMobileVideo(videoElement);
+        if (isMobileAutoplayEnabled) {
+          playMobileVideo(videoElement);
+        } else {
+          videoElement.pause();
+        }
       } else {
         videoElement.muted = true;
         videoElement.pause();
@@ -2138,6 +2249,7 @@ export default function VideoGallery() {
     });
   }, [
     activeFeedIndex,
+    isMobileAutoplayEnabled,
     isMobile,
     mobileMuted,
     mobileVolume,
