@@ -16,6 +16,9 @@
   --overlay: rgba(4, 4, 10, 0.82);
   --backdrop: rgba(9, 11, 24, 0.72);
   --transition-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --top-nav-height: clamp(72px, 12vw, 112px);
+  --mobile-feed-viewport: calc(100vh - var(--top-nav-height));
+  --mobile-feed-actions-base: 6rem;
 }
 
 * {
@@ -47,6 +50,12 @@ body {
   min-height: 100vh;
   line-height: 1.6;
   letter-spacing: 0.01em;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --mobile-feed-viewport: calc(100dvh - var(--top-nav-height));
+  }
 }
 
 body.no-scroll {
@@ -799,7 +808,7 @@ a {
 
 .mobile-feed {
   position: relative;
-  height: calc(100vh - 120px);
+  height: var(--mobile-feed-viewport);
   overflow-y: auto;
   scroll-snap-type: y mandatory;
   scroll-behavior: smooth;
@@ -807,7 +816,8 @@ a {
 
 .mobile-feed__item {
   position: relative;
-  height: calc(100vh - 120px);
+  height: var(--mobile-feed-viewport);
+  min-height: var(--mobile-feed-viewport);
   scroll-snap-align: center;
   display: flex;
   align-items: center;
@@ -828,6 +838,7 @@ a {
   position: absolute;
   inset: 0;
   padding: 1.5rem;
+  padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -837,7 +848,7 @@ a {
 .mobile-feed__actions {
   position: absolute;
   right: 1rem;
-  bottom: 5rem;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--mobile-feed-actions-base));
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -1036,7 +1047,7 @@ a {
 
 .video-overlay--mobile .video-overlay__inner {
   max-width: 78%;
-  margin-bottom: 3.5rem;
+  margin-bottom: calc(var(--mobile-feed-actions-base) - 2.5rem);
   padding-right: calc(64px + 1.5rem);
   font-size: clamp(0.85rem, 1.1vw, 0.95rem);
 }
@@ -1560,9 +1571,8 @@ a {
 }
 
 @media (max-width: 640px) {
-  .mobile-feed,
-  .mobile-feed__item {
-    height: calc(100vh - 96px);
+  :root {
+    --top-nav-height: clamp(68px, 14vw, 96px);
   }
 
   .mobile-feed__meta {
@@ -1571,7 +1581,7 @@ a {
   }
 
   .mobile-feed__actions {
-    bottom: 4.5rem;
+    --mobile-feed-actions-base: 6.75rem;
   }
 
   .masonry-grid {

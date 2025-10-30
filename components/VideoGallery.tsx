@@ -35,7 +35,10 @@ interface InteractionState {
   sharing: boolean;
 }
 
-const PAGE_SIZE = 24;
+const DESKTOP_PAGE_SIZE = 24;
+const MOBILE_INITIAL_PAGE_SIZE = 5;
+const MOBILE_PAGE_SIZE = 5;
+const MOBILE_PREFETCH_THRESHOLD = 2;
 const MOBILE_BREAKPOINT = 768;
 const DEFAULT_MOBILE_VOLUME = 0.65;
 const MIN_AUDIBLE_VOLUME = 0.02;
@@ -912,20 +915,39 @@ export default function VideoGallery() {
       const isBackgroundFetch = Boolean(options?.background);
       pendingCursorRef.current = cursor ?? null;
 
+      const effectiveLimit = (() => {
+        if (typeof window !== 'undefined') {
+          const currentlyMobile =
+            window.innerWidth <= MOBILE_BREAKPOINT;
+          if (currentlyMobile) {
+            return loadMore
+              ? MOBILE_PAGE_SIZE
+              : MOBILE_INITIAL_PAGE_SIZE;
+          }
+        }
+        return DESKTOP_PAGE_SIZE;
+      })();
+
       if (loadMore) {
-        setIsFetchingMore(true);
-        setLoadMoreError(null);
+        if (!isBackgroundFetch) {
+          setIsFetchingMore(true);
+          setLoadMoreError(null);
+        }
       } else {
         if (!isBackgroundFetch) {
           setIsLoading(true);
           setHasMore(true);
           setNextCursor(null);
         }
-        setError(null);
+        if (!isBackgroundFetch) {
+          setError(null);
+        }
       }
 
       try {
-        const params = new URLSearchParams({ limit: `${PAGE_SIZE}` });
+        const params = new URLSearchParams({
+          limit: `${effectiveLimit}`
+        });
         if (cursor) {
           params.set('cursor', cursor);
         }
@@ -984,19 +1006,23 @@ export default function VideoGallery() {
             : Boolean(newCursor) && normalized.length > 0;
 
         setHasMore(moreAvailable);
-        pendingCursorRef.current = null;
       } catch (fetchError) {
         if (!isMountedRef.current) {
+          pendingCursorRef.current = null;
           return;
         }
 
         if (cursor) {
-          setLoadMoreError(
-            fetchError instanceof Error
-              ? fetchError.message
-              : 'Failed to load more videos'
-          );
-          setHasMore(false);
+          if (isBackgroundFetch) {
+            console.error('Failed to prefetch videos:', fetchError);
+          } else {
+            setLoadMoreError(
+              fetchError instanceof Error
+                ? fetchError.message
+                : 'Failed to load more videos'
+            );
+            setHasMore(false);
+          }
         } else if (isBackgroundFetch) {
           console.error('Failed to refresh videos:', fetchError);
         } else {
@@ -1010,14 +1036,18 @@ export default function VideoGallery() {
         }
       } finally {
         if (!isMountedRef.current) {
+          pendingCursorRef.current = null;
           return;
         }
 
         if (cursor) {
-          setIsFetchingMore(false);
+          if (!isBackgroundFetch) {
+            setIsFetchingMore(false);
+          }
         } else if (!isBackgroundFetch) {
           setIsLoading(false);
         }
+        pendingCursorRef.current = null;
       }
     },
     []
@@ -1743,7 +1773,8 @@ export default function VideoGallery() {
             hasMore &&
             !isLoading &&
             !isFetchingMore &&
-            nextCursor
+            nextCursor &&
+            !pendingCursorRef.current
           ) {
             observer.unobserve(entry.target);
             fetchVideos(nextCursor).finally(() => {
@@ -1773,6 +1804,41 @@ export default function VideoGallery() {
     isLoading,
     nextCursor,
     supportsIntersectionObserver
+  ]);
+
+  useEffect(() => {
+    if (
+      !isMobile ||
+      !hasMore ||
+      !nextCursor ||
+      isLoading ||
+      isFetchingMore ||
+      loadMoreError ||
+      pendingCursorRef.current
+    ) {
+      return;
+    }
+
+    if (videos.length === 0) {
+      return;
+    }
+
+    const remaining = videos.length - 1 - activeFeedIndex;
+    if (remaining > MOBILE_PREFETCH_THRESHOLD) {
+      return;
+    }
+
+    fetchVideos(nextCursor, { background: true });
+  }, [
+    activeFeedIndex,
+    fetchVideos,
+    hasMore,
+    isFetchingMore,
+    isLoading,
+    isMobile,
+    loadMoreError,
+    nextCursor,
+    videos.length
   ]);
 
   useEffect(() => {

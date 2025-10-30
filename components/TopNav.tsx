@@ -1,7 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react';
 import LoginDialog from './LoginDialog';
 import type { AuthenticatedUser } from '@/lib/types';
 import {
@@ -40,6 +46,7 @@ const resolveDisplayName = (user: AuthenticatedUser | null): string | null => {
 };
 
 export default function TopNav() {
+  const navRef = useRef<HTMLElement | null>(null);
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [currentToken, setCurrentToken] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(false);
@@ -198,6 +205,42 @@ export default function TopNav() {
 
   const clearExternalError = useCallback(() => setAuthError(null), []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return;
+    }
+
+    const updateNavHeight = () => {
+      const element = navRef.current;
+      if (!element) {
+        return;
+      }
+
+      const { height } = element.getBoundingClientRect();
+      document.documentElement.style.setProperty(
+        '--top-nav-height',
+        `${Math.round(height)}px`
+      );
+    };
+
+    updateNavHeight();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => {
+        updateNavHeight();
+      });
+      if (navRef.current) {
+        observer.observe(navRef.current);
+      }
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener('resize', updateNavHeight);
+    return () => {
+      window.removeEventListener('resize', updateNavHeight);
+    };
+  }, []);
+
   const handleGoogleLogin = useCallback(async () => {
     if (typeof window === 'undefined') {
       return;
@@ -275,7 +318,7 @@ export default function TopNav() {
 
   return (
     <>
-      <nav className="top-nav">
+      <nav className="top-nav" ref={navRef}>
         <div className="top-nav__container">
           <div className="top-nav__brand">
             <Link href="/">T2V Gallery</Link>
