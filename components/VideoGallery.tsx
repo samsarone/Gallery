@@ -195,6 +195,20 @@ const normalizeVideo = (payload: unknown): PublishedVideo | null => {
     createdBy = (createdByRaw as { toString: () => string }).toString();
   }
 
+  let aspectRatioCandidate: string | null = null;
+  if (typeof record.aspectRatio === 'string' && record.aspectRatio.trim().length > 0) {
+    aspectRatioCandidate = record.aspectRatio.trim();
+  } else if (
+    typeof (record as { publishedAspectRatio?: unknown }).publishedAspectRatio === 'string'
+  ) {
+    const publishedAspectRatio = (record as { publishedAspectRatio: string }).publishedAspectRatio;
+    if (publishedAspectRatio.trim().length > 0) {
+      aspectRatioCandidate = publishedAspectRatio.trim();
+    }
+  } else if (typeof recordMap.aspect_ratio === 'string' && recordMap.aspect_ratio.trim().length > 0) {
+    aspectRatioCandidate = recordMap.aspect_ratio.trim();
+  }
+
   return {
     id,
     videoUrl,
@@ -219,7 +233,8 @@ const normalizeVideo = (payload: unknown): PublishedVideo | null => {
     createdAt,
     stats,
     viewerHasLiked: Boolean(record.viewerHasLiked),
-    isBotUser: Boolean(record.isBotUser)
+    isBotUser: Boolean(record.isBotUser),
+    aspectRatio: aspectRatioCandidate
   };
 };
 

@@ -5,6 +5,7 @@ import {
   FormEvent,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState
 } from 'react';
@@ -59,6 +60,31 @@ export default function VideoModal({
   const [commentError, setCommentError] = useState<string | null>(null);
   const [commentsExpanded, setCommentsExpanded] = useState<boolean>(false);
   const commentsContentId = useId();
+  const [isVideoReady, setIsVideoReady] = useState(false);
+
+  const aspectRatioValue = useMemo(() => {
+    if (!video.aspectRatio || typeof video.aspectRatio !== 'string') {
+      return null;
+    }
+
+    const normalized = video.aspectRatio.replace(/x/gi, ':').replace(/\//g, ':');
+    const [rawWidth, rawHeight] = normalized.split(':').map((value) => value.trim());
+    const width = Number.parseFloat(rawWidth);
+    const height = Number.parseFloat(rawHeight);
+
+    if (
+      Number.isFinite(width) &&
+      Number.isFinite(height) &&
+      width > 0 &&
+      height > 0
+    ) {
+      return `${width} / ${height}`;
+    }
+
+    return null;
+  }, [video.aspectRatio]);
+
+  const videoContainerStyle = aspectRatioValue ? { aspectRatio: aspectRatioValue } : undefined;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -107,6 +133,10 @@ export default function VideoModal({
   }, [video.id]);
 
   useEffect(() => {
+    setIsVideoReady(false);
+  }, [video.id, video.videoUrl]);
+
+  useEffect(() => {
     const element = videoRef.current;
     if (!element) {
       return;
@@ -146,6 +176,17 @@ export default function VideoModal({
       // Autoplay might be blocked; ignore.
     }
   }, [video.id]);
+
+  const handleVideoReady = () => {
+    setIsVideoReady(true);
+  };
+
+  const handleVideoWaiting = () => {
+    if (videoRef.current?.readyState !== undefined && videoRef.current.readyState >= 2) {
+      return;
+    }
+    setIsVideoReady(false);
+  };
 
   const handleBackdropClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {
@@ -230,18 +271,35 @@ export default function VideoModal({
           ×
         </button>
 
-        <section className="modal__video">
-          <video
-            ref={videoRef}
-            src={video.videoUrl}
-            controls
-            autoPlay
-            playsInline
-            loop
-            muted={initialMuted}
-            controlsList="nodownload"
-            poster=""
-          />
+        <section className="modal__video" aria-busy={!isVideoReady}>
+          <div
+            className={`modal__video-inner${
+              isVideoReady ? ' modal__video-inner--ready' : ''
+            }`}
+            style={videoContainerStyle}
+          >
+            {!isVideoReady && (
+              <div className="modal__video-placeholder" aria-hidden="true">
+                <div className="modal__video-placeholder-sheen" />
+                <div className="modal__video-spinner" />
+              </div>
+            )}
+            <video
+              ref={videoRef}
+              src={video.videoUrl}
+              controls
+              autoPlay
+              playsInline
+              loop
+              muted={initialMuted}
+              controlsList="nodownload"
+              poster=""
+              onLoadedData={handleVideoReady}
+              onLoadedMetadata={handleVideoReady}
+              onCanPlay={handleVideoReady}
+              onWaiting={handleVideoWaiting}
+            />
+          </div>
           {onPrevious && (
             <button
               type="button"

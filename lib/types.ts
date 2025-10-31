@@ -29,6 +29,7 @@ export interface PublishedVideo {
   videoUrl: string;
   title: string;
   description: string;
+  aspectRatio?: string | null;
   originalPrompt?: string;
   tags?: string[];
   creatorHandle?: string;

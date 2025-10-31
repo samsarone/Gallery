@@ -124,6 +124,16 @@ export async function GET(request: NextRequest) {
                 .filter(Boolean)
             : undefined;
 
+        const aspectRatio =
+          typeof record.aspectRatio === 'string' && record.aspectRatio.trim().length > 0
+            ? record.aspectRatio.trim()
+            : typeof record.publishedAspectRatio === 'string' &&
+              record.publishedAspectRatio.trim().length > 0
+            ? record.publishedAspectRatio.trim()
+            : typeof record.aspect_ratio === 'string' && record.aspect_ratio.trim().length > 0
+            ? record.aspect_ratio.trim()
+            : undefined;
+
         return {
           ...record,
           id: idCandidate,
@@ -139,7 +149,8 @@ export async function GET(request: NextRequest) {
           tags,
           stats,
           viewerHasLiked: Boolean(record.viewerHasLiked),
-          isBotUser: Boolean(record.isBotUser)
+          isBotUser: Boolean(record.isBotUser),
+          aspectRatio
         };
       })
       .filter((item: unknown): item is Record<string, unknown> => Boolean(item));
