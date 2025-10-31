@@ -54,6 +54,7 @@ const MOBILE_VOLUME_HIDE_DELAY = 2200;
 const VOLUME_STORAGE_KEY = 'samsar-gallery/mobile-volume';
 const MUTED_STORAGE_KEY = 'samsar-gallery/mobile-muted';
 const AUTOPLAY_STORAGE_KEY = 'samsar-gallery/mobile-autoplay';
+const MOBILE_AUTOPLAY_RAISE_DELAY = 500;
 
 const clampVolume = (value: number): number =>
   Math.min(1, Math.max(0, value));
@@ -502,6 +503,13 @@ export default function VideoGallery() {
   const autoplayBlockedRef = useRef<boolean>(false);
   const prefetchedMobileVideoIdsRef = useRef<Set<string>>(new Set());
   const initialMobilePrefetchRequestedRef = useRef<boolean>(false);
+  const mobileActiveRafRef = useRef<number | null>(null);
+  const mobileAutoplayRaiseTimeoutRef = useRef<number | null>(null);
+  const mobileAutoplayRaiseVideoRef = useRef<HTMLVideoElement | null>(null);
+  const mobileAutoplayRaiseIndexRef = useRef<number | null>(null);
+  const activeFeedIndexRef = useRef<number>(0);
+  const mobileMutedRef = useRef<boolean>(false);
+  const mobileVolumeRef = useRef<number>(DEFAULT_MOBILE_VOLUME);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -598,6 +606,9 @@ export default function VideoGallery() {
     ) {
       setIsMobileAutoplayEnabled(true);
     }
+
+    // Force autoplay on for each fresh load regardless of stored preference.
+    setIsMobileAutoplayEnabled(true);
   }, []);
 
   const promptLogin = useCallback((message: string) => {
@@ -651,17 +662,19 @@ export default function VideoGallery() {
 
   const playMobileVideo = useCallback(
     (videoElement: HTMLVideoElement, options?: { force?: boolean }) => {
-      if (!(videoElement instanceof HTMLMediaElement)) {
-        return;
+      if (!(videoElement instanceof HTMLVideoElement)) {
+        return false;
       }
 
       const shouldForce = Boolean(options?.force);
+
       if (!shouldForce) {
         if (!isMobile || !isMobileAutoplayEnabled) {
-          return;
+          return false;
         }
+
         if (autoplayBlockedRef.current) {
-          return;
+          return false;
         }
       } else {
         autoplayBlockedRef.current = false;
@@ -673,7 +686,8 @@ export default function VideoGallery() {
           playAttempt.catch((error) => {
             if (
               error instanceof DOMException &&
-              (error.name === 'NotAllowedError' || error.name === 'NotSupportedError')
+              (error.name === 'NotAllowedError' ||
+                error.name === 'NotSupportedError')
             ) {
               if (!shouldForce) {
                 autoplayBlockedRef.current = true;
@@ -684,15 +698,96 @@ export default function VideoGallery() {
       } catch (error) {
         if (
           error instanceof DOMException &&
-          (error.name === 'NotAllowedError' || error.name === 'NotSupportedError')
+          (error.name === 'NotAllowedError' ||
+            error.name === 'NotSupportedError')
         ) {
           if (!shouldForce) {
             autoplayBlockedRef.current = true;
           }
         }
       }
+
+      return true;
     },
     [isMobile, isMobileAutoplayEnabled]
+  );
+
+  const clearScheduledAutoplayRaise = useCallback(() => {
+    if (
+      typeof window !== 'undefined' &&
+      mobileAutoplayRaiseTimeoutRef.current !== null
+    ) {
+      window.clearTimeout(mobileAutoplayRaiseTimeoutRef.current);
+    }
+
+    mobileAutoplayRaiseTimeoutRef.current = null;
+    mobileAutoplayRaiseVideoRef.current = null;
+    mobileAutoplayRaiseIndexRef.current = null;
+  }, []);
+
+  const scheduleAutoplayRaise = useCallback(
+    (videoElement: HTMLVideoElement, index: number) => {
+      if (!(videoElement instanceof HTMLVideoElement)) {
+        return;
+      }
+
+      if (typeof window === 'undefined') {
+        if (
+          !mobileMutedRef.current &&
+          mobileVolumeRef.current > MIN_AUDIBLE_VOLUME
+        ) {
+          const desiredVolume = clampVolume(mobileVolumeRef.current);
+          videoElement.volume = desiredVolume;
+          videoElement.muted = false;
+        }
+        return;
+      }
+
+      clearScheduledAutoplayRaise();
+
+      if (
+        mobileMutedRef.current ||
+        mobileVolumeRef.current <= MIN_AUDIBLE_VOLUME
+      ) {
+        return;
+      }
+
+      mobileAutoplayRaiseVideoRef.current = videoElement;
+      mobileAutoplayRaiseIndexRef.current = index;
+
+      mobileAutoplayRaiseTimeoutRef.current = window.setTimeout(() => {
+        mobileAutoplayRaiseTimeoutRef.current = null;
+        mobileAutoplayRaiseVideoRef.current = null;
+        mobileAutoplayRaiseIndexRef.current = null;
+
+        if (activeFeedIndexRef.current !== index) {
+          return;
+        }
+
+        if (
+          mobileMutedRef.current ||
+          mobileVolumeRef.current <= MIN_AUDIBLE_VOLUME
+        ) {
+          return;
+        }
+
+        const desiredVolume = clampVolume(mobileVolumeRef.current);
+
+        try {
+          videoElement.volume = desiredVolume;
+          videoElement.muted = false;
+        } catch {
+          // Ignore setter failures on unsupported browsers.
+        }
+
+        if (videoElement.paused) {
+          void videoElement.play().catch(() => {
+            // Ignore play errors during volume raise.
+          });
+        }
+      }, MOBILE_AUTOPLAY_RAISE_DELAY);
+    },
+    [clearScheduledAutoplayRaise]
   );
 
   const ensureMobileVideoPlaying = useCallback(
@@ -704,9 +799,47 @@ export default function VideoGallery() {
         return;
       }
 
-      playMobileVideo(videoElement, options);
+      const shouldForce = Boolean(options?.force);
+
+      if (shouldForce) {
+        clearScheduledAutoplayRaise();
+
+        const shouldMute = mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
+        const resolvedVolume = shouldMute ? 0 : clampVolume(mobileVolume);
+
+        try {
+          videoElement.volume = resolvedVolume;
+          videoElement.muted = shouldMute;
+        } catch {
+          // Ignore setter failures on unsupported browsers.
+        }
+
+        playMobileVideo(videoElement, { force: true });
+        return;
+      }
+
+      clearScheduledAutoplayRaise();
+
+      try {
+        videoElement.muted = true;
+        videoElement.volume = 0;
+      } catch {
+        // Ignore setter failures on unsupported browsers.
+      }
+
+      const didAttemptPlay = playMobileVideo(videoElement);
+
+      if (didAttemptPlay) {
+        scheduleAutoplayRaise(videoElement, index);
+      }
     },
-    [playMobileVideo]
+    [
+      clearScheduledAutoplayRaise,
+      mobileMuted,
+      mobileVolume,
+      playMobileVideo,
+      scheduleAutoplayRaise
+    ]
   );
 
   const ensureActiveMobileVideoPlaying = useCallback(
@@ -719,6 +852,76 @@ export default function VideoGallery() {
     },
     [activeFeedIndex, ensureMobileVideoPlaying, isMobile]
   );
+
+  const evaluateMobileActiveVideo = useCallback(() => {
+    if (!isMobile) {
+      return;
+    }
+
+    const feed = mobileFeedRef.current;
+    if (!feed) {
+      return;
+    }
+
+    const feedRect = feed.getBoundingClientRect();
+    const viewportTop = feedRect.top;
+    const viewportBottom = feedRect.bottom;
+    const viewportCenter = viewportTop + feedRect.height / 2;
+
+    let bestIndex = -1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    feedItemRefs.current.forEach((element, index) => {
+      if (!(element instanceof HTMLDivElement)) {
+        return;
+      }
+
+      const rect = element.getBoundingClientRect();
+      if (rect.height <= 0) {
+        return;
+      }
+
+      if (rect.bottom <= viewportTop || rect.top >= viewportBottom) {
+        return;
+      }
+
+      const elementCenter = rect.top + rect.height / 2;
+      const distance = Math.abs(elementCenter - viewportCenter);
+
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    });
+
+    if (bestIndex === -1) {
+      return;
+    }
+
+    setActiveFeedIndex((previousIndex) => {
+      if (previousIndex === bestIndex) {
+        return previousIndex;
+      }
+      return bestIndex;
+    });
+
+    ensureMobileVideoPlaying(bestIndex);
+  }, [ensureMobileVideoPlaying, isMobile]);
+
+  const scheduleMobileActiveEvaluation = useCallback(() => {
+    if (!isMobile || typeof window === 'undefined') {
+      return;
+    }
+
+    if (mobileActiveRafRef.current !== null) {
+      return;
+    }
+
+    mobileActiveRafRef.current = window.requestAnimationFrame(() => {
+      mobileActiveRafRef.current = null;
+      evaluateMobileActiveVideo();
+    });
+  }, [evaluateMobileActiveVideo, isMobile]);
 
   const resumeAutoplayFromGesture = useCallback(() => {
     if (!isMobile || !isMobileAutoplayEnabled) {
@@ -823,6 +1026,8 @@ export default function VideoGallery() {
         return;
       }
 
+      clearScheduledAutoplayRaise();
+
       const activeElement =
         feedItemRefs.current[activeFeedIndex]?.querySelector('video');
 
@@ -831,13 +1036,19 @@ export default function VideoGallery() {
         activeElement.muted = shouldMute;
 
         if (!shouldMute) {
-          playMobileVideo(activeElement);
+          playMobileVideo(activeElement, { force: true });
         }
       } else if (!shouldMute) {
-        ensureActiveMobileVideoPlaying();
+        ensureActiveMobileVideoPlaying({ force: true });
       }
     },
-    [activeFeedIndex, ensureActiveMobileVideoPlaying, isMobile, playMobileVideo]
+    [
+      activeFeedIndex,
+      clearScheduledAutoplayRaise,
+      ensureActiveMobileVideoPlaying,
+      isMobile,
+      playMobileVideo
+    ]
   );
 
   useEffect(() => {
@@ -1039,22 +1250,27 @@ export default function VideoGallery() {
       }
 
       const videoElement = event.currentTarget;
-      const shouldMute = mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
-      const resolvedVolume = shouldMute ? 0 : mobileVolume;
-
-      videoElement.volume = resolvedVolume;
-      videoElement.muted = shouldMute;
+      try {
+        videoElement.muted = true;
+        videoElement.volume = 0;
+      } catch {
+        // Ignore setter failures on unsupported browsers.
+      }
 
       const container = videoElement.closest('.mobile-feed__item');
       const indexAttribute = container?.getAttribute('data-index');
       const parsedIndex =
         indexAttribute != null ? Number.parseInt(indexAttribute, 10) : NaN;
 
-      if (!Number.isNaN(parsedIndex) && parsedIndex === activeFeedIndex) {
-        playMobileVideo(videoElement);
+      if (Number.isNaN(parsedIndex)) {
+        return;
+      }
+
+      if (parsedIndex === activeFeedIndex) {
+        ensureMobileVideoPlaying(parsedIndex);
       }
     },
-    [activeFeedIndex, isMobile, mobileMuted, mobileVolume, playMobileVideo]
+    [activeFeedIndex, ensureMobileVideoPlaying, isMobile]
   );
 
   const handleMobileVideoClick = useCallback(
@@ -1087,35 +1303,30 @@ export default function VideoGallery() {
         commitMobileVolume(target);
       };
 
-      if (!isMobileAutoplayEnabled) {
+      if (!isCurrentActive) {
         setActiveFeedIndex(index);
+        setIsMobileAutoplayEnabled(true);
+        ensureMobileVideoPlaying(index, { force: true });
+        return;
+      }
+
+      if (videoElement.paused) {
         setIsMobileAutoplayEnabled(true);
         ensureAudibleVolume();
         ensureMobileVideoPlaying(index, { force: true });
         return;
       }
 
-      if (!isCurrentActive) {
-        setActiveFeedIndex(index);
-        ensureMobileVideoPlaying(index, { force: true });
-        return;
-      }
-
-      if (videoElement.paused) {
-        ensureAudibleVolume();
-        ensureMobileVideoPlaying(index, { force: true });
-        return;
-      }
-
       videoElement.pause();
+      clearScheduledAutoplayRaise();
       setIsMobileAutoplayEnabled(false);
     },
     [
       activeFeedIndex,
+      clearScheduledAutoplayRaise,
       commitMobileVolume,
       ensureMobileVideoPlaying,
       isMobile,
-      isMobileAutoplayEnabled,
       mobileMuted,
       mobileVolume
     ]
@@ -1933,6 +2144,18 @@ export default function VideoGallery() {
   }, []);
 
   useEffect(() => {
+    activeFeedIndexRef.current = activeFeedIndex;
+  }, [activeFeedIndex]);
+
+  useEffect(() => {
+    mobileMutedRef.current = mobileMuted;
+  }, [mobileMuted]);
+
+  useEffect(() => {
+    mobileVolumeRef.current = mobileVolume;
+  }, [mobileVolume]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') {
       setInitialVideoId(null);
       return;
@@ -2253,24 +2476,74 @@ export default function VideoGallery() {
       resumeAutoplayFromGesture();
     };
 
+    const handleScroll = () => {
+      scheduleMobileActiveEvaluation();
+    };
+
+    const handleResize = () => {
+      scheduleMobileActiveEvaluation();
+    };
+
+    scheduleMobileActiveEvaluation();
+
     feed.addEventListener('pointerup', handleGesture);
     feed.addEventListener('pointercancel', handleGesture);
     feed.addEventListener('touchend', handleGesture, touchOptions);
+    feed.addEventListener('scroll', handleScroll, { passive: true });
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', handleResize);
+    }
 
     return () => {
       feed.removeEventListener('pointerup', handleGesture);
       feed.removeEventListener('pointercancel', handleGesture);
       feed.removeEventListener('touchend', handleGesture, touchOptions);
+      feed.removeEventListener('scroll', handleScroll);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('resize', handleResize);
+      }
     };
-  }, [isMobile, resumeAutoplayFromGesture]);
+  }, [
+    isMobile,
+    resumeAutoplayFromGesture,
+    scheduleMobileActiveEvaluation
+  ]);
 
   useEffect(() => {
     if (!isMobile) {
       return;
     }
 
-    const shouldMuteActive = mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
-    const resolvedVolume = shouldMuteActive ? 0 : mobileVolume;
+    scheduleMobileActiveEvaluation();
+  }, [isMobile, scheduleMobileActiveEvaluation, videos.length]);
+
+  useEffect(
+    () => () => {
+      if (
+        typeof window !== 'undefined' &&
+        mobileActiveRafRef.current !== null
+      ) {
+        window.cancelAnimationFrame(mobileActiveRafRef.current);
+        mobileActiveRafRef.current = null;
+      }
+      clearScheduledAutoplayRaise();
+    },
+    [clearScheduledAutoplayRaise]
+  );
+
+  useEffect(() => {
+    if (!isMobile) {
+      if (
+        typeof window !== 'undefined' &&
+        mobileActiveRafRef.current !== null
+      ) {
+        window.cancelAnimationFrame(mobileActiveRafRef.current);
+        mobileActiveRafRef.current = null;
+      }
+      clearScheduledAutoplayRaise();
+      return;
+    }
 
     feedItemRefs.current.forEach((element, index) => {
       const videoElement = element?.querySelector('video') as
@@ -2280,28 +2553,56 @@ export default function VideoGallery() {
         return;
       }
 
-      videoElement.volume = resolvedVolume;
+      if (index !== activeFeedIndex) {
+        try {
+          videoElement.muted = true;
+          videoElement.volume = 0;
+        } catch {
+          // Ignore setter failures on unsupported browsers.
+        }
 
-      if (index === activeFeedIndex) {
-        videoElement.muted = shouldMuteActive;
-        if (isMobileAutoplayEnabled) {
-          playMobileVideo(videoElement);
-        } else {
+        if (!videoElement.paused) {
           videoElement.pause();
         }
-      } else {
-        videoElement.muted = true;
-        videoElement.pause();
       }
     });
+
+    ensureMobileVideoPlaying(activeFeedIndex);
   }, [
     activeFeedIndex,
-    isMobileAutoplayEnabled,
+    clearScheduledAutoplayRaise,
+    ensureMobileVideoPlaying,
+    isMobile,
+    videos.length
+  ]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      return;
+    }
+
+    if (!mobileMuted && mobileVolume > MIN_AUDIBLE_VOLUME) {
+      return;
+    }
+
+    clearScheduledAutoplayRaise();
+
+    const activeElement =
+      feedItemRefs.current[activeFeedIndex]?.querySelector('video');
+    if (activeElement instanceof HTMLVideoElement) {
+      try {
+        activeElement.muted = true;
+        activeElement.volume = 0;
+      } catch {
+        // Ignore setter failures on unsupported browsers.
+      }
+    }
+  }, [
+    activeFeedIndex,
+    clearScheduledAutoplayRaise,
     isMobile,
     mobileMuted,
-    mobileVolume,
-    playMobileVideo,
-    videos
+    mobileVolume
   ]);
 
   useEffect(() => {
