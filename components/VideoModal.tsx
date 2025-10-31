@@ -30,6 +30,8 @@ interface VideoModalProps {
   initialVolume: number;
   initialMuted: boolean;
   onVolumeChange: (volume: number, muted: boolean) => void;
+  onPrevious?: () => void;
+  onNext?: () => void;
   onClose: () => void;
 }
 
@@ -48,6 +50,8 @@ export default function VideoModal({
   initialVolume,
   initialMuted,
   onVolumeChange,
+  onPrevious,
+  onNext,
   onClose
 }: VideoModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -59,6 +63,30 @@ export default function VideoModal({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onClose();
+        return;
+      }
+
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+        return;
+      }
+
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (event.key === 'ArrowLeft' && onPrevious) {
+        event.preventDefault();
+        onPrevious();
+      } else if (event.key === 'ArrowRight' && onNext) {
+        event.preventDefault();
+        onNext();
       }
     };
 
@@ -69,11 +97,16 @@ export default function VideoModal({
       document.body.classList.remove('no-scroll');
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [onClose]);
+  }, [onClose, onNext, onPrevious]);
 
   useEffect(() => {
     onEnsureComments(video.id);
   }, [onEnsureComments, video.id]);
+
+  useEffect(() => {
+    setCommentText('');
+    setCommentError(null);
+  }, [video.id]);
 
   useEffect(() => {
     const element = videoRef.current;
@@ -192,6 +225,26 @@ export default function VideoModal({
             controlsList="nodownload"
             poster=""
           />
+          {onPrevious && (
+            <button
+              type="button"
+              className="modal__nav-button modal__nav-button--previous"
+              onClick={onPrevious}
+              aria-label="View previous video"
+            >
+              <span aria-hidden="true">‹</span>
+            </button>
+          )}
+          {onNext && (
+            <button
+              type="button"
+              className="modal__nav-button modal__nav-button--next"
+              onClick={onNext}
+              aria-label="View next video"
+            >
+              <span aria-hidden="true">›</span>
+            </button>
+          )}
           <VideoOverlayContent
             variant="modal"
             title={video.title}

@@ -11,6 +11,10 @@ export const metadata: Metadata = {
   metadataBase,
   title: ogTitle,
   description: ogDescription,
+  icons: {
+    icon: '/favicon.png',
+    shortcut: '/favicon.png'
+  },
   openGraph: {
     title: ogTitle,
     description: ogDescription,

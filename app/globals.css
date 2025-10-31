@@ -758,6 +758,55 @@ a {
   background: #000;
 }
 
+.modal__nav-button {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(8, 14, 30, 0.6);
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.7rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 180ms ease, background 180ms ease, border-color 180ms ease;
+  backdrop-filter: blur(8px);
+  z-index: 2;
+}
+
+.modal__nav-button:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.36);
+  transform: translateY(-50%) scale(1.06);
+}
+
+.modal__nav-button:active {
+  transform: translateY(-50%) scale(0.95);
+}
+
+.modal__nav-button--previous {
+  left: 1rem;
+}
+
+.modal__nav-button--next {
+  right: 1rem;
+}
+
+.modal__nav-button span {
+  pointer-events: none;
+}
+
+@media (max-width: 768px) {
+  .modal__nav-button {
+    display: none;
+  }
+}
+
 .modal__meta {
   display: flex;
   flex-direction: column;

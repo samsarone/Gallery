@@ -592,17 +592,11 @@ export default function VideoGallery() {
       setMobileMuted(effectiveMuted);
     }
 
-    let restoredAutoplay: boolean | null = null;
-    if (storedAutoplayRaw !== null) {
-      if (storedAutoplayRaw === '1' || storedAutoplayRaw === 'true') {
-        restoredAutoplay = true;
-      } else if (storedAutoplayRaw === '0' || storedAutoplayRaw === 'false') {
-        restoredAutoplay = false;
-      }
-    }
-
-    if (restoredAutoplay !== null) {
-      setIsMobileAutoplayEnabled(restoredAutoplay);
+    if (
+      storedAutoplayRaw !== null &&
+      (storedAutoplayRaw === '1' || storedAutoplayRaw === 'true')
+    ) {
+      setIsMobileAutoplayEnabled(true);
     }
   }, []);
 
@@ -725,6 +719,30 @@ export default function VideoGallery() {
     },
     [activeFeedIndex, ensureMobileVideoPlaying, isMobile]
   );
+
+  const resumeAutoplayFromGesture = useCallback(() => {
+    if (!isMobile || !isMobileAutoplayEnabled) {
+      return;
+    }
+
+    const container = feedItemRefs.current[activeFeedIndex];
+    const videoElement =
+      container?.querySelector('video') ?? null;
+    if (!(videoElement instanceof HTMLVideoElement)) {
+      return;
+    }
+
+    if (!videoElement.paused && !autoplayBlockedRef.current) {
+      return;
+    }
+
+    ensureMobileVideoPlaying(activeFeedIndex, { force: true });
+  }, [
+    activeFeedIndex,
+    ensureMobileVideoPlaying,
+    isMobile,
+    isMobileAutoplayEnabled
+  ]);
 
   const prefetchMobileVideoAt = useCallback(
     (index: number) => {
@@ -1249,8 +1267,8 @@ export default function VideoGallery() {
           rawNextCursor != null && String(rawNextCursor).length > 0
             ? String(rawNextCursor)
             : null;
-        setNextCursor(newCursor);
-
+        const reachedEnd =
+          (loadMore || isBackgroundFetch) && normalized.length === 0;
         const hasMoreValue =
           typeof payload?.hasMore === 'boolean'
             ? payload.hasMore
@@ -1258,13 +1276,16 @@ export default function VideoGallery() {
             ? payload.pagination.hasMore
             : null;
         const moreAvailable =
-          hasMoreValue !== null
+          reachedEnd
+            ? false
+            : hasMoreValue !== null
             ? hasMoreValue
             : totalCountFromPayload !== null
             ? updatedVideos.length < totalCountFromPayload
             : Boolean(newCursor) && normalized.length > 0;
 
         setHasMore(moreAvailable);
+        setNextCursor(moreAvailable ? newCursor : null);
       } catch (fetchError) {
         if (!isMountedRef.current) {
           pendingCursorRef.current = null;
@@ -2222,6 +2243,32 @@ export default function VideoGallery() {
       return;
     }
 
+    const feed = mobileFeedRef.current;
+    if (!feed) {
+      return;
+    }
+
+    const touchOptions: AddEventListenerOptions = { passive: true };
+    const handleGesture = () => {
+      resumeAutoplayFromGesture();
+    };
+
+    feed.addEventListener('pointerup', handleGesture);
+    feed.addEventListener('pointercancel', handleGesture);
+    feed.addEventListener('touchend', handleGesture, touchOptions);
+
+    return () => {
+      feed.removeEventListener('pointerup', handleGesture);
+      feed.removeEventListener('pointercancel', handleGesture);
+      feed.removeEventListener('touchend', handleGesture, touchOptions);
+    };
+  }, [isMobile, resumeAutoplayFromGesture]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      return;
+    }
+
     const shouldMuteActive = mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
     const resolvedVolume = shouldMuteActive ? 0 : mobileVolume;
 
@@ -2419,6 +2466,14 @@ export default function VideoGallery() {
       ? commentsMap[commentPanelVideoId]
       : createInitialCommentState();
 
+  const openVideo = useCallback(
+    (videoId: string) => {
+      setSelectedVideoId(videoId);
+      void ensureCommentsLoaded(videoId);
+    },
+    [ensureCommentsLoaded]
+  );
+
   const placeholderItems = useMemo(
     () =>
       Array.from({ length: 8 }, (_, index) => (
@@ -2443,16 +2498,14 @@ export default function VideoGallery() {
         key={video.id}
         className="video-card"
         onClick={() => {
-          setSelectedVideoId(video.id);
-          void ensureCommentsLoaded(video.id);
+          openVideo(video.id);
         }}
         tabIndex={0}
         role="button"
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            setSelectedVideoId(video.id);
-            void ensureCommentsLoaded(video.id);
+            openVideo(video.id);
           }
         }}
       >
@@ -2483,6 +2536,34 @@ export default function VideoGallery() {
         </div>
       </article>
     ));
+
+  const selectedVideoIndex = selectedVideo
+    ? videos.findIndex((videoItem) => videoItem.id === selectedVideo.id)
+    : -1;
+
+  const hasPreviousVideo = selectedVideoIndex > 0;
+  const hasNextVideo =
+    selectedVideoIndex !== -1 && selectedVideoIndex < videos.length - 1;
+
+  const handleSelectPreviousVideo = () => {
+    if (!hasPreviousVideo) {
+      return;
+    }
+    const previousVideo = videos[selectedVideoIndex - 1];
+    if (previousVideo) {
+      openVideo(previousVideo.id);
+    }
+  };
+
+  const handleSelectNextVideo = () => {
+    if (!hasNextVideo) {
+      return;
+    }
+    const nextVideo = videos[selectedVideoIndex + 1];
+    if (nextVideo) {
+      openVideo(nextVideo.id);
+    }
+  };
 
   const isVolumeEffectivelyMuted =
     mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
@@ -2715,6 +2796,8 @@ export default function VideoGallery() {
           initialVolume={preferredModalVolume}
           initialMuted={isVolumeEffectivelyMuted}
           onVolumeChange={handleModalVolumeChange}
+          onPrevious={hasPreviousVideo ? handleSelectPreviousVideo : undefined}
+          onNext={hasNextVideo ? handleSelectNextVideo : undefined}
           onClose={() => setSelectedVideoId(null)}
         />
       )}
