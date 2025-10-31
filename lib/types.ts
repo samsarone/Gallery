@@ -21,6 +21,7 @@ export interface VideoCommentState {
   isLoading: boolean;
   isPosting: boolean;
   error: string | null;
+  hasLoadedInitial: boolean;
 }
 
 export interface PublishedVideo {

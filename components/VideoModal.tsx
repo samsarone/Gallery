@@ -4,6 +4,7 @@
 import {
   FormEvent,
   useEffect,
+  useId,
   useRef,
   useState
 } from 'react';
@@ -26,7 +27,6 @@ interface VideoModalProps {
   onShare: (video: PublishedVideo) => Promise<void> | void;
   onSubmitComment: (videoId: string, text: string) => Promise<void>;
   onLoadMoreComments: (videoId: string) => Promise<void> | void;
-  onEnsureComments: (videoId: string) => Promise<void> | void;
   initialVolume: number;
   initialMuted: boolean;
   onVolumeChange: (volume: number, muted: boolean) => void;
@@ -46,7 +46,6 @@ export default function VideoModal({
   onShare,
   onSubmitComment,
   onLoadMoreComments,
-  onEnsureComments,
   initialVolume,
   initialMuted,
   onVolumeChange,
@@ -58,6 +57,8 @@ export default function VideoModal({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [commentText, setCommentText] = useState('');
   const [commentError, setCommentError] = useState<string | null>(null);
+  const [commentsExpanded, setCommentsExpanded] = useState<boolean>(false);
+  const commentsContentId = useId();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -100,12 +101,9 @@ export default function VideoModal({
   }, [onClose, onNext, onPrevious]);
 
   useEffect(() => {
-    onEnsureComments(video.id);
-  }, [onEnsureComments, video.id]);
-
-  useEffect(() => {
     setCommentText('');
     setCommentError(null);
+    setCommentsExpanded(false);
   }, [video.id]);
 
   useEffect(() => {
@@ -184,8 +182,27 @@ export default function VideoModal({
     }
   };
 
+  const handleToggleComments = () => {
+    setCommentsExpanded((previous) => !previous);
+  };
+
+  const commentsContainerClassName = `modal__comments${
+    commentsExpanded ? ' modal__comments--expanded' : ' modal__comments--collapsed'
+  }`;
+
+  const commentsContentClassName = `modal__comments-content${
+    commentsExpanded ? ' modal__comments-content--expanded' : ''
+  }`;
+  const commentsToggleTitle = commentsExpanded
+    ? 'Collapse comments'
+    : 'Expand comments';
+  const showCommentsLoading = comments.isLoading;
+  const shouldShowEmptyState =
+    !comments.isLoading && comments.items.length === 0 && !comments.error;
+  const shouldRenderComments = comments.hasLoadedInitial;
+
   const handleLoadMore = async () => {
-    if (!comments.hasMore || comments.isLoading) {
+    if (!comments.hasMore || showCommentsLoading || comments.isLoading) {
       return;
     }
     await onLoadMoreComments(video.id);
@@ -304,82 +321,106 @@ export default function VideoModal({
             </button>
           </div>
 
-          <div className="modal__comments">
-            <div className="modal__comments-header">
-              <h3>Comments</h3>
-              <span>{stats.comments.toLocaleString()}</span>
-            </div>
+          {shouldRenderComments ? (
+            <div className={commentsContainerClassName}>
+              <button
+                type="button"
+                className="modal__comments-toggle"
+                onClick={handleToggleComments}
+                aria-expanded={commentsExpanded}
+                aria-controls={commentsContentId}
+                title={commentsToggleTitle}
+              >
+                <span className="modal__comments-label">Comments</span>
+                <span className="modal__comments-meta">
+                  <span className="modal__comments-count">
+                    {stats.comments.toLocaleString()}
+                  </span>
+                  <span className="modal__comments-icon" aria-hidden="true" />
+                </span>
+              </button>
 
-            {comments.error && (
-              <div className="modal__comments-error">{comments.error}</div>
-            )}
+              {commentsExpanded ? (
+                <div id={commentsContentId} className={commentsContentClassName}>
+                  {comments.error && (
+                    <div className="modal__comments-error">{comments.error}</div>
+                  )}
 
-            <div className="modal__comments-list">
-              {comments.items.map((comment) => (
-                <div className="modal__comment" key={comment.id}>
-                  <div className="modal__comment-header">
-                    <span className="modal__comment-author">
-                      {comment.isBotUser
-                        ? `${comment.creatorHandle} [bot]`
-                        : comment.creatorHandle}
-                    </span>
-                    <time
-                      dateTime={comment.createdAt}
-                      className="modal__comment-time"
-                    >
-                      {new Date(comment.createdAt).toLocaleString()}
-                    </time>
+                  <div className="modal__comments-list">
+                    {comments.items.map((comment) => (
+                      <div className="modal__comment" key={comment.id}>
+                        <div className="modal__comment-header">
+                          <span className="modal__comment-author">
+                            {comment.isBotUser
+                              ? `${comment.creatorHandle} [bot]`
+                              : comment.creatorHandle}
+                          </span>
+                          <time
+                            dateTime={comment.createdAt}
+                            className="modal__comment-time"
+                          >
+                            {new Date(comment.createdAt).toLocaleString()}
+                          </time>
+                        </div>
+                        <p className="modal__comment-text">{comment.text}</p>
+                      </div>
+                    ))}
+
+                    {showCommentsLoading && (
+                      <div className="modal__comments-loader">
+                        Loading comments…
+                      </div>
+                    )}
+
+                    {comments.hasMore && !showCommentsLoading && (
+                      <button
+                        type="button"
+                        className="modal__comments-load-more"
+                        onClick={handleLoadMore}
+                      >
+                        Load more comments
+                      </button>
+                    )}
+
+                    {shouldShowEmptyState && (
+                      <p className="modal__comments-empty">
+                        Be the first to leave a comment.
+                      </p>
+                    )}
                   </div>
-                  <p className="modal__comment-text">{comment.text}</p>
+
+                  <form className="modal__comment-form" onSubmit={handleCommentSubmit}>
+                    <label htmlFor="modal-comment-input" className="sr-only">
+                      Add a comment
+                    </label>
+                    <input
+                      id="modal-comment-input"
+                      type="text"
+                      value={commentText}
+                      onChange={(event) => setCommentText(event.target.value)}
+                      placeholder="Add a comment…"
+                      disabled={comments.isPosting}
+                    />
+                    <button
+                      type="submit"
+                      disabled={comments.isPosting || commentText.trim().length === 0}
+                    >
+                      {comments.isPosting ? 'Posting…' : 'Post'}
+                    </button>
+                  </form>
+
+                  {commentError && (
+                    <p className="modal__comment-error" role="alert">
+                      {commentError}
+                    </p>
+                  )}
                 </div>
-              ))}
-
-              {comments.isLoading && (
-                <div className="modal__comments-loader">Loading comments…</div>
-              )}
-
-              {comments.hasMore && !comments.isLoading && (
-                <button
-                  type="button"
-                  className="modal__comments-load-more"
-                  onClick={handleLoadMore}
-                >
-                  Load more comments
-                </button>
-              )}
-
-              {!comments.isLoading && comments.items.length === 0 && (
-                <p className="modal__comments-empty">
-                  Be the first to leave a comment.
-                </p>
-              )}
+              ) : null}
             </div>
-          </div>
-
-          <form className="modal__comment-form" onSubmit={handleCommentSubmit}>
-            <label htmlFor="modal-comment-input" className="sr-only">
-              Add a comment
-            </label>
-            <input
-              id="modal-comment-input"
-              type="text"
-              value={commentText}
-              onChange={(event) => setCommentText(event.target.value)}
-              placeholder="Add a comment…"
-              disabled={comments.isPosting}
-            />
-            <button
-              type="submit"
-              disabled={comments.isPosting || commentText.trim().length === 0}
-            >
-              {comments.isPosting ? 'Posting…' : 'Post'}
-            </button>
-          </form>
-
-          {commentError && (
-            <p className="modal__comment-error" role="alert">
-              {commentError}
-            </p>
+          ) : (
+            <div className="modal__comments-loading">
+              <div className="modal__comments-loader">Loading comments…</div>
+            </div>
           )}
         </aside>
       </div>

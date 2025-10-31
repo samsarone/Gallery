@@ -70,7 +70,8 @@ const createInitialCommentState = (): VideoCommentState => ({
   hasMore: false,
   isLoading: false,
   isPosting: false,
-  error: null
+  error: null,
+  hasLoadedInitial: false
 });
 
 const isVideoComment = (value: unknown): value is VideoComment => {
@@ -1553,7 +1554,7 @@ export default function VideoGallery() {
     async (videoId: string) => {
       const current =
         commentsMapRef.current[videoId] ?? createInitialCommentState();
-      if (current.items.length > 0 || current.isLoading) {
+      if (current.hasLoadedInitial || current.isLoading) {
         return;
       }
 
@@ -1633,7 +1634,8 @@ export default function VideoGallery() {
             nextCursor,
             hasMore,
             isLoading: false,
-            error: null
+            error: null,
+            hasLoadedInitial: true
           };
           const next = {
             ...previous,
@@ -1653,7 +1655,8 @@ export default function VideoGallery() {
           const nextState: VideoCommentState = {
             ...previousState,
             isLoading: false,
-            error: message
+            error: message,
+            hasLoadedInitial: true
           };
           const next = {
             ...previous,
@@ -2749,20 +2752,20 @@ export default function VideoGallery() {
   }, [isMobile, selectedVideoId]);
 
   useEffect(() => {
-    if (!selectedVideoId) {
-      return;
-    }
-
-    void ensureCommentsLoaded(selectedVideoId);
-  }, [selectedVideoId, ensureCommentsLoaded]);
-
-  useEffect(() => {
     if (!commentPanelVideoId) {
       return;
     }
 
     void ensureCommentsLoaded(commentPanelVideoId);
   }, [commentPanelVideoId, ensureCommentsLoaded]);
+
+  useEffect(() => {
+    if (!selectedVideoId) {
+      return;
+    }
+
+    void ensureCommentsLoaded(selectedVideoId);
+  }, [selectedVideoId, ensureCommentsLoaded]);
 
   useEffect(() => {
     if (!isMobile || typeof document === 'undefined') {
@@ -3150,7 +3153,6 @@ export default function VideoGallery() {
           onShare={shareVideo}
           onSubmitComment={submitComment}
           onLoadMoreComments={loadMoreComments}
-          onEnsureComments={ensureCommentsLoaded}
           initialVolume={preferredModalVolume}
           initialMuted={isVolumeEffectivelyMuted}
           onVolumeChange={handleModalVolumeChange}
