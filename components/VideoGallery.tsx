@@ -510,6 +510,11 @@ export default function VideoGallery() {
   const activeFeedIndexRef = useRef<number>(0);
   const mobileMutedRef = useRef<boolean>(false);
   const mobileVolumeRef = useRef<number>(DEFAULT_MOBILE_VOLUME);
+  const commentsMapRef = useRef<Record<string, VideoCommentState>>(commentsMap);
+
+  useEffect(() => {
+    commentsMapRef.current = commentsMap;
+  }, [commentsMap]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1547,21 +1552,26 @@ export default function VideoGallery() {
   const ensureCommentsLoaded = useCallback(
     async (videoId: string) => {
       const current =
-        commentsMap[videoId] ?? createInitialCommentState();
+        commentsMapRef.current[videoId] ?? createInitialCommentState();
       if (current.items.length > 0 || current.isLoading) {
         return;
       }
 
-      setCommentsMap((previous) => ({
-        ...previous,
-        [videoId]: {
-          ...(previous[videoId] ?? createInitialCommentState()),
+      setCommentsMap((previous) => {
+        const previousState =
+          previous[videoId] ?? createInitialCommentState();
+        const nextState: VideoCommentState = {
+          ...previousState,
           isLoading: true,
-          error: null,
-          isPosting:
-            previous[videoId]?.isPosting ?? false
-        }
-      }));
+          error: null
+        };
+        const next = {
+          ...previous,
+          [videoId]: nextState
+        };
+        commentsMapRef.current = next;
+        return next;
+      });
 
       try {
         const response = await fetch(
@@ -1614,52 +1624,72 @@ export default function VideoGallery() {
           hasMore
         } = coerceCommentsPayload(payload);
 
-        setCommentsMap((previous) => ({
-          ...previous,
-          [videoId]: {
-            ...(previous[videoId] ?? createInitialCommentState()),
+        setCommentsMap((previous) => {
+          const previousState =
+            previous[videoId] ?? createInitialCommentState();
+          const nextState: VideoCommentState = {
+            ...previousState,
             items: normalized,
             nextCursor,
             hasMore,
             isLoading: false,
-            error: null,
-            isPosting:
-              previous[videoId]?.isPosting ?? false
-          }
-        }));
+            error: null
+          };
+          const next = {
+            ...previous,
+            [videoId]: nextState
+          };
+          commentsMapRef.current = next;
+          return next;
+        });
       } catch (loadError) {
         const message =
           loadError instanceof Error
             ? loadError.message
             : 'Failed to load comments.';
-        setCommentsMap((previous) => ({
-          ...previous,
-          [videoId]: {
-            ...(previous[videoId] ?? createInitialCommentState()),
+        setCommentsMap((previous) => {
+          const previousState =
+            previous[videoId] ?? createInitialCommentState();
+          const nextState: VideoCommentState = {
+            ...previousState,
             isLoading: false,
             error: message
-          }
-        }));
+          };
+          const next = {
+            ...previous,
+            [videoId]: nextState
+          };
+          commentsMapRef.current = next;
+          return next;
+        });
       }
     },
-    [commentsMap]
+    []
   );
 
   const loadMoreComments = useCallback(
     async (videoId: string) => {
-      const current = commentsMap[videoId] ?? createInitialCommentState();
+      const current =
+        commentsMapRef.current[videoId] ?? createInitialCommentState();
       if (!current.hasMore || current.isLoading) {
         return;
       }
 
-      setCommentsMap((previous) => ({
-        ...previous,
-        [videoId]: {
-          ...(previous[videoId] ?? createInitialCommentState()),
+      setCommentsMap((previous) => {
+        const previousState =
+          previous[videoId] ?? createInitialCommentState();
+        const nextState: VideoCommentState = {
+          ...previousState,
           isLoading: true,
           error: null
-        }
-      }));
+        };
+        const next = {
+          ...previous,
+          [videoId]: nextState
+        };
+        commentsMapRef.current = next;
+        return next;
+      });
 
       try {
         const params = new URLSearchParams({ limit: '20' });
@@ -1718,36 +1748,46 @@ export default function VideoGallery() {
         } = coerceCommentsPayload(payload);
 
         setCommentsMap((previous) => {
-          const state =
+          const previousState =
             previous[videoId] ?? createInitialCommentState();
-          return {
-            ...previous,
-            [videoId]: {
-              ...state,
-              items: [...state.items, ...normalized],
-              nextCursor,
-              hasMore,
-              isLoading: false,
-              error: null
-            }
+          const nextState: VideoCommentState = {
+            ...previousState,
+            items: [...previousState.items, ...normalized],
+            nextCursor,
+            hasMore,
+            isLoading: false,
+            error: null
           };
+          const next = {
+            ...previous,
+            [videoId]: nextState
+          };
+          commentsMapRef.current = next;
+          return next;
         });
       } catch (loadError) {
         const message =
           loadError instanceof Error
             ? loadError.message
             : 'Failed to load comments.';
-        setCommentsMap((previous) => ({
-          ...previous,
-          [videoId]: {
-            ...(previous[videoId] ?? createInitialCommentState()),
+        setCommentsMap((previous) => {
+          const previousState =
+            previous[videoId] ?? createInitialCommentState();
+          const nextState: VideoCommentState = {
+            ...previousState,
             isLoading: false,
             error: message
-          }
-        }));
+          };
+          const next = {
+            ...previous,
+            [videoId]: nextState
+          };
+          commentsMapRef.current = next;
+          return next;
+        });
       }
     },
-    [commentsMap]
+    []
   );
 
   const fetchSingleVideo = useCallback(
@@ -1807,14 +1847,21 @@ export default function VideoGallery() {
 
   const submitComment = useCallback(
     async (videoId: string, text: string) => {
-      setCommentsMap((previous) => ({
-        ...previous,
-        [videoId]: {
-          ...(previous[videoId] ?? createInitialCommentState()),
+      setCommentsMap((previous) => {
+        const previousState =
+          previous[videoId] ?? createInitialCommentState();
+        const nextState: VideoCommentState = {
+          ...previousState,
           isPosting: true,
           error: null
-        }
-      }));
+        };
+        const next = {
+          ...previous,
+          [videoId]: nextState
+        };
+        commentsMapRef.current = next;
+        return next;
+      });
 
       try {
         const response = await fetch(
@@ -1872,17 +1919,20 @@ export default function VideoGallery() {
         const statsPayload = payload?.stats as Partial<VideoStats> | undefined;
 
         setCommentsMap((previous) => {
-          const state =
+          const previousState =
             previous[videoId] ?? createInitialCommentState();
-          return {
-            ...previous,
-            [videoId]: {
-              ...state,
-              items: [newComment, ...state.items],
-              isPosting: false,
-              error: null
-            }
+          const nextState: VideoCommentState = {
+            ...previousState,
+            items: [newComment, ...previousState.items],
+            isPosting: false,
+            error: null
           };
+          const next = {
+            ...previous,
+            [videoId]: nextState
+          };
+          commentsMapRef.current = next;
+          return next;
         });
 
         updateVideo(videoId, (previous) => ({
@@ -1907,14 +1957,21 @@ export default function VideoGallery() {
           submitError instanceof Error
             ? submitError.message
             : 'Failed to post comment.';
-        setCommentsMap((previous) => ({
-          ...previous,
-          [videoId]: {
-            ...(previous[videoId] ?? createInitialCommentState()),
+        setCommentsMap((previous) => {
+          const previousState =
+            previous[videoId] ?? createInitialCommentState();
+          const nextState: VideoCommentState = {
+            ...previousState,
             isPosting: false,
             error: message
-          }
-        }));
+          };
+          const next = {
+            ...previous,
+            [videoId]: nextState
+          };
+          commentsMapRef.current = next;
+          return next;
+        });
 
         throw new Error(message);
       }
