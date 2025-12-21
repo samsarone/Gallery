@@ -10,6 +10,7 @@ import {
   useRef,
   useState
 } from 'react';
+import type { CSSProperties } from 'react';
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent
@@ -20,6 +21,11 @@ import type {
   VideoCommentState,
   VideoStats
 } from '@/lib/types';
+import {
+  clearAuthToken,
+  getExistingAuthToken,
+  verifyAuthToken
+} from '@/lib/auth';
 import {
   normalizeComment,
   parseCommentsPayload
@@ -55,6 +61,7 @@ const VOLUME_STORAGE_KEY = 'samsar-gallery/mobile-volume';
 const MUTED_STORAGE_KEY = 'samsar-gallery/mobile-muted';
 const AUTOPLAY_STORAGE_KEY = 'samsar-gallery/mobile-autoplay';
 const MOBILE_AUTOPLAY_RAISE_DELAY = 500;
+const DEFAULT_DESKTOP_ASPECT_RATIO = 9 / 16;
 
 const clampVolume = (value: number): number =>
   Math.min(1, Math.max(0, value));
@@ -237,6 +244,51 @@ const normalizeVideo = (payload: unknown): PublishedVideo | null => {
     aspectRatio: aspectRatioCandidate
   };
 };
+
+const parseAspectRatio = (value?: string | null): number => {
+  if (!value || typeof value !== 'string') {
+    return DEFAULT_DESKTOP_ASPECT_RATIO;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return DEFAULT_DESKTOP_ASPECT_RATIO;
+  }
+
+  const ratioMatch = trimmed.match(
+    /(\d*\.?\d+)\s*[:x/×X]\s*(\d*\.?\d+)/
+  );
+  if (ratioMatch) {
+    const width = Number(ratioMatch[1]);
+    const height = Number(ratioMatch[2]);
+    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      return width / height;
+    }
+  }
+
+  const numericValue = Number(trimmed);
+  if (Number.isFinite(numericValue) && numericValue > 0) {
+    return numericValue;
+  }
+
+  switch (trimmed.toLowerCase()) {
+    case 'square':
+      return 1;
+    case 'landscape':
+      return 16 / 9;
+    case 'portrait':
+    case 'vertical':
+      return DEFAULT_DESKTOP_ASPECT_RATIO;
+    default:
+      return DEFAULT_DESKTOP_ASPECT_RATIO;
+  }
+};
+
+const getAspectRatioStyle = (
+  aspectRatio?: string | null
+): CSSProperties => ({
+  aspectRatio: parseAspectRatio(aspectRatio)
+});
 
 
 
@@ -491,6 +543,8 @@ export default function VideoGallery() {
   const [interactionMap, setInteractionMap] = useState<
     Record<string, InteractionState>
   >({});
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [mobileVolume, setMobileVolume] = useState<number>(
@@ -513,6 +567,7 @@ export default function VideoGallery() {
   const volumeOverlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
+  const authCheckIdRef = useRef<number>(0);
   const lastAudibleVolumeRef = useRef<number>(DEFAULT_MOBILE_VOLUME);
   const adjustingVolumeRef = useRef<boolean>(false);
   const hasBootstrappedRef = useRef<boolean>(false);
@@ -531,6 +586,45 @@ export default function VideoGallery() {
   useEffect(() => {
     commentsMapRef.current = commentsMap;
   }, [commentsMap]);
+
+  useEffect(() => {
+    performAuthCheck();
+  }, [performAuthCheck]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('BroadcastChannel' in window)) {
+      return;
+    }
+
+    const channel = new BroadcastChannel('oauth_channel');
+    const handler = () => {
+      performAuthCheck();
+    };
+
+    channel.addEventListener('message', handler);
+    return () => {
+      channel.removeEventListener('message', handler);
+      channel.close();
+    };
+  }, [performAuthCheck]);
+
+  useEffect(() => {
+    if (isAuthLoading) {
+      return;
+    }
+
+    if (!isAuthenticated) {
+      hasBootstrappedRef.current = false;
+      setSelectedVideoId(null);
+      setCommentPanelVideoId(null);
+      setVideos([]);
+      setNextCursor(null);
+      setHasMore(true);
+      setError(null);
+      setLoadMoreError(null);
+      setIsLoading(true);
+    }
+  }, [isAuthLoading, isAuthenticated]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -635,6 +729,34 @@ export default function VideoGallery() {
   const promptLogin = useCallback((message: string) => {
     setAuthNotice(message);
     dispatchAuthModal('login');
+  }, []);
+
+  const performAuthCheck = useCallback(async () => {
+    const checkId = authCheckIdRef.current + 1;
+    authCheckIdRef.current = checkId;
+
+    const token = getExistingAuthToken();
+    if (!token) {
+      setIsAuthenticated(false);
+      setIsAuthLoading(false);
+      return;
+    }
+
+    setIsAuthLoading(true);
+    const profile = await verifyAuthToken(token);
+
+    if (authCheckIdRef.current !== checkId) {
+      return;
+    }
+
+    if (profile) {
+      setIsAuthenticated(true);
+    } else {
+      clearAuthToken();
+      setIsAuthenticated(false);
+    }
+
+    setIsAuthLoading(false);
   }, []);
 
   const updateInteractionState = useCallback(
@@ -1400,7 +1522,7 @@ export default function VideoGallery() {
 
   const fetchVideos = useCallback(
     async (cursor?: string | null, options?: { background?: boolean }) => {
-      if (!isMountedRef.current) {
+      if (!isMountedRef.current || !isAuthenticated) {
         return;
       }
 
@@ -1562,11 +1684,15 @@ export default function VideoGallery() {
         pendingCursorRef.current = null;
       }
     },
-    []
+    [isAuthenticated]
   );
 
   const ensureCommentsLoaded = useCallback(
     async (videoId: string) => {
+      if (!isAuthenticated) {
+        return;
+      }
+
       const current =
         commentsMapRef.current[videoId] ?? createInitialCommentState();
       if (current.hasLoadedInitial || current.isLoading) {
@@ -1682,7 +1808,7 @@ export default function VideoGallery() {
         });
       }
     },
-    []
+    [isAuthenticated]
   );
 
   const loadMoreComments = useCallback(
@@ -1805,11 +1931,15 @@ export default function VideoGallery() {
         });
       }
     },
-    []
+    [isAuthenticated]
   );
 
   const fetchSingleVideo = useCallback(
     async (videoId: string) => {
+      if (!isAuthenticated) {
+        return;
+      }
+
       setIsLoading(true);
       setError(null);
 
@@ -1860,7 +1990,7 @@ export default function VideoGallery() {
         setIsLoading(false);
       }
     },
-    [ensureCommentsLoaded]
+    [ensureCommentsLoaded, isAuthenticated]
   );
 
   const submitComment = useCallback(
@@ -2301,6 +2431,10 @@ export default function VideoGallery() {
       return;
     }
 
+    if (!isAuthenticated || isAuthLoading) {
+      return;
+    }
+
     if (hasBootstrappedRef.current) {
       return;
     }
@@ -2317,7 +2451,7 @@ export default function VideoGallery() {
     } else {
       fetchVideos();
     }
-  }, [fetchSingleVideo, fetchVideos, initialVideoId]);
+  }, [fetchSingleVideo, fetchVideos, initialVideoId, isAuthenticated, isAuthLoading]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -2767,20 +2901,20 @@ export default function VideoGallery() {
   }, [isMobile, selectedVideoId]);
 
   useEffect(() => {
-    if (!commentPanelVideoId) {
+    if (!commentPanelVideoId || !isAuthenticated) {
       return;
     }
 
     void ensureCommentsLoaded(commentPanelVideoId);
-  }, [commentPanelVideoId, ensureCommentsLoaded]);
+  }, [commentPanelVideoId, ensureCommentsLoaded, isAuthenticated]);
 
   useEffect(() => {
-    if (!selectedVideoId) {
+    if (!selectedVideoId || !isAuthenticated) {
       return;
     }
 
     void ensureCommentsLoaded(selectedVideoId);
-  }, [selectedVideoId, ensureCommentsLoaded]);
+  }, [selectedVideoId, ensureCommentsLoaded, isAuthenticated]);
 
   useEffect(() => {
     if (!isMobile || typeof document === 'undefined') {
@@ -2868,50 +3002,64 @@ export default function VideoGallery() {
     []
   );
 
+  const showAuthGate = !isAuthenticated;
+  const showSkeleton = isLoading || showAuthGate;
+  const authDialogTitle = isAuthLoading
+    ? 'Loading your access'
+    : 'Sign in to view the gallery';
+  const authDialogCopy = isAuthLoading
+    ? 'Please wait while we verify your account.'
+    : 'Log in or create an account to continue.';
+  const showAuthActions = !isAuthLoading;
+
   const renderDesktopVideos = () =>
-    videos.map((video) => (
-      <article
-        key={video.id}
-        className="video-card"
-        onClick={() => {
-          openVideo(video.id);
-        }}
-        tabIndex={0}
-        role="button"
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
+    videos.map((video) => {
+      const mediaStyle = getAspectRatioStyle(video.aspectRatio);
+
+      return (
+        <article
+          key={video.id}
+          className="video-card"
+          onClick={() => {
             openVideo(video.id);
-          }
-        }}
-      >
-        <div className="video-card__media">
-          <video
-            src={video.videoUrl}
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            className="video-card__video"
-          />
-          <div className="video-card__glow" />
-          <div className="video-card__inline-stats">
-            <span>♥ {video.stats.likes.toLocaleString()}</span>
-            <span>💬 {video.stats.comments.toLocaleString()}</span>
-            <span>⤴ {video.stats.shares.toLocaleString()}</span>
+          }}
+          tabIndex={0}
+          role="button"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              openVideo(video.id);
+            }
+          }}
+        >
+          <div className="video-card__media" style={mediaStyle}>
+            <video
+              src={video.videoUrl}
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              className="video-card__video"
+            />
+            <div className="video-card__glow" />
+            <div className="video-card__inline-stats">
+              <span>♥ {video.stats.likes.toLocaleString()}</span>
+              <span>💬 {video.stats.comments.toLocaleString()}</span>
+              <span>⤴ {video.stats.shares.toLocaleString()}</span>
+            </div>
           </div>
-        </div>
-        <div className="video-card__content">
-          <h3 title={video.title}>{video.title}</h3>
-          <p>{video.description || 'Tap to view the full experience.'}</p>
-          {video.originalPrompt && (
-            <p className="video-card__prompt" title={video.originalPrompt}>
-              {video.originalPrompt}
-            </p>
-          )}
-        </div>
-      </article>
-    ));
+          <div className="video-card__content">
+            <h3 title={video.title}>{video.title}</h3>
+            <p>{video.description || 'Tap to view the full experience.'}</p>
+            {video.originalPrompt && (
+              <p className="video-card__prompt" title={video.originalPrompt}>
+                {video.originalPrompt}
+              </p>
+            )}
+          </div>
+        </article>
+      );
+    });
 
   const selectedVideoIndex = selectedVideo
     ? videos.findIndex((videoItem) => videoItem.id === selectedVideo.id)
@@ -3086,13 +3234,13 @@ export default function VideoGallery() {
   return (
     <>
       <section className={`gallery${isMobile ? ' gallery--mobile' : ''}`}>
-        {isLoading && (
+        {showSkeleton && (
           <div className="masonry-grid" aria-hidden="true">
             {placeholderItems}
           </div>
         )}
 
-        {!isLoading && error && (
+        {!showSkeleton && error && (
           <div className="error-state">
             <p>{error}</p>
             <button className="button" onClick={handleRetryInitial}>
@@ -3101,13 +3249,13 @@ export default function VideoGallery() {
           </div>
         )}
 
-        {!isLoading && !error && videos.length === 0 && (
+        {!showSkeleton && !error && videos.length === 0 && (
           <div className="empty-state">
             <p>No published videos yet. Check back soon!</p>
           </div>
         )}
 
-        {!isLoading && !error && videos.length > 0 && (
+        {!showSkeleton && !error && videos.length > 0 && (
           <>
             {isMobile ? (
               <div className="mobile-feed" ref={mobileFeedRef}>
@@ -3118,11 +3266,50 @@ export default function VideoGallery() {
             )}
           </>
         )}
+
+        {showAuthGate && (
+          <div
+            className="gallery__auth-overlay"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="gallery-auth-title"
+          >
+            <div className="gallery__auth-card">
+              <div
+                className="spinner gallery__auth-spinner"
+                aria-hidden="true"
+              />
+              <h2 id="gallery-auth-title" className="gallery__auth-title">
+                {authDialogTitle}
+              </h2>
+              <p className="gallery__auth-copy">{authDialogCopy}</p>
+              {showAuthActions && (
+                <div className="gallery__auth-actions">
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => dispatchAuthModal('login')}
+                  >
+                    Log in
+                  </button>
+                  <button
+                    type="button"
+                    className="button button--secondary"
+                    onClick={() => dispatchAuthModal('register')}
+                  >
+                    Create account
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </section>
 
       <div className="gallery__sentinel" ref={sentinelRef} aria-hidden />
 
-      {(isFetchingMore ||
+      {isAuthenticated &&
+        (isFetchingMore ||
         loadMoreError ||
         (hasMore && !supportsIntersectionObserver)) && (
         <div className="gallery__status">
@@ -3156,7 +3343,7 @@ export default function VideoGallery() {
         </div>
       )}
 
-      {selectedVideo && !isMobile && (
+      {isAuthenticated && selectedVideo && !isMobile && (
         <VideoModal
           video={selectedVideo}
           stats={selectedVideo.stats}
@@ -3177,7 +3364,7 @@ export default function VideoGallery() {
         />
       )}
 
-      {isMobile && commentPanelVideo && (
+      {isAuthenticated && isMobile && commentPanelVideo && (
         <CommentDrawer
           video={commentPanelVideo}
           state={commentPanelState}

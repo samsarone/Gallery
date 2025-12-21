@@ -303,9 +303,9 @@ export default function VideoModal({
           {onPrevious && (
             <button
               type="button"
-              className="modal__nav-button modal__nav-button--previous"
+              className="modal__nav-overlay modal__nav-overlay--previous"
               onClick={onPrevious}
-              aria-label="View previous video"
+              aria-label="Play previous video"
             >
               <span aria-hidden="true">‹</span>
             </button>
@@ -313,9 +313,9 @@ export default function VideoModal({
           {onNext && (
             <button
               type="button"
-              className="modal__nav-button modal__nav-button--next"
+              className="modal__nav-overlay modal__nav-overlay--next"
               onClick={onNext}
-              aria-label="View next video"
+              aria-label="Play next video"
             >
               <span aria-hidden="true">›</span>
             </button>
