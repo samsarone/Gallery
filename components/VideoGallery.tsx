@@ -583,6 +583,34 @@ export default function VideoGallery() {
   const mobileVolumeRef = useRef<number>(DEFAULT_MOBILE_VOLUME);
   const commentsMapRef = useRef<Record<string, VideoCommentState>>(commentsMap);
 
+  const performAuthCheck = useCallback(async () => {
+    const checkId = authCheckIdRef.current + 1;
+    authCheckIdRef.current = checkId;
+
+    const token = getExistingAuthToken();
+    if (!token) {
+      setIsAuthenticated(false);
+      setIsAuthLoading(false);
+      return;
+    }
+
+    setIsAuthLoading(true);
+    const profile = await verifyAuthToken(token);
+
+    if (authCheckIdRef.current !== checkId) {
+      return;
+    }
+
+    if (profile) {
+      setIsAuthenticated(true);
+    } else {
+      clearAuthToken();
+      setIsAuthenticated(false);
+    }
+
+    setIsAuthLoading(false);
+  }, []);
+
   useEffect(() => {
     commentsMapRef.current = commentsMap;
   }, [commentsMap]);
@@ -729,34 +757,6 @@ export default function VideoGallery() {
   const promptLogin = useCallback((message: string) => {
     setAuthNotice(message);
     dispatchAuthModal('login');
-  }, []);
-
-  const performAuthCheck = useCallback(async () => {
-    const checkId = authCheckIdRef.current + 1;
-    authCheckIdRef.current = checkId;
-
-    const token = getExistingAuthToken();
-    if (!token) {
-      setIsAuthenticated(false);
-      setIsAuthLoading(false);
-      return;
-    }
-
-    setIsAuthLoading(true);
-    const profile = await verifyAuthToken(token);
-
-    if (authCheckIdRef.current !== checkId) {
-      return;
-    }
-
-    if (profile) {
-      setIsAuthenticated(true);
-    } else {
-      clearAuthToken();
-      setIsAuthenticated(false);
-    }
-
-    setIsAuthLoading(false);
   }, []);
 
   const updateInteractionState = useCallback(
