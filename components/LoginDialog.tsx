@@ -26,6 +26,37 @@ interface LoginDialogProps {
 
 const DEFAULT_VIEW: AuthView = 'login';
 
+const AGE_CONFIRMATION_COPY: Record<string, string> = {
+  en: 'I am 18 years or older',
+  es: 'Tengo 18 años o más',
+  fr: "J'ai 18 ans ou plus",
+  ja: '私は18歳以上です',
+  th: 'ฉันมีอายุ 18 ปีขึ้นไป',
+  zh: '我已年满18岁',
+  la: 'Annorum duodeviginti vel amplius sum',
+  sa: 'अहं अष्टादश वर्षेभ्यः अधिकः अस्मि',
+  bn: 'আমার বয়স ১৮ বছর বা তার বেশি',
+  hi: 'मैं 18 वर्ष या उससे अधिक हूँ'
+};
+
+const resolveAgeConfirmationLabel = () => {
+  if (typeof navigator !== 'undefined' && navigator.language) {
+    const base = navigator.language.split('-')[0];
+    if (AGE_CONFIRMATION_COPY[base]) {
+      return AGE_CONFIRMATION_COPY[base];
+    }
+  }
+
+  if (typeof document !== 'undefined') {
+    const base = document.documentElement.lang?.split('-')[0];
+    if (base && AGE_CONFIRMATION_COPY[base]) {
+      return AGE_CONFIRMATION_COPY[base];
+    }
+  }
+
+  return AGE_CONFIRMATION_COPY.en;
+};
+
 const normalizeUserPayload = (payload: unknown): {
   user: AuthenticatedUser | null;
   token: string | null;
@@ -84,11 +115,16 @@ export default function LoginDialog({
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [registerConfirmPassword, setRegisterConfirmPassword] = useState('');
+  const [captchaQuestion, setCaptchaQuestion] = useState('');
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
+  const [captchaInput, setCaptchaInput] = useState('');
+  const [isAgeConfirmed, setIsAgeConfirmed] = useState(true);
 
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const apiBase = process.env.API_SERVER;
+  const ageConfirmationLabel = useMemo(resolveAgeConfirmationLabel, []);
 
   useEffect(() => {
     if (!open) {
@@ -98,6 +134,10 @@ export default function LoginDialog({
       setRegisterEmail('');
       setRegisterPassword('');
       setRegisterConfirmPassword('');
+      setCaptchaQuestion('');
+      setCaptchaAnswer('');
+      setCaptchaInput('');
+      setIsAgeConfirmed(true);
       setError(null);
       onResetExternalError?.();
       if (!activeView) {
@@ -121,6 +161,13 @@ export default function LoginDialog({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [open, onClose]);
 
+  useEffect(() => {
+    if (open && currentView === 'register') {
+      generateCaptcha();
+      setIsAgeConfirmed(true);
+    }
+  }, [open, currentView]);
+
   const handleViewChange = (view: AuthView) => {
     if (view === currentView) {
       return;
@@ -134,6 +181,35 @@ export default function LoginDialog({
     } else {
       setInternalView(view);
     }
+  };
+
+  const generateCaptcha = () => {
+    const num1 = Math.floor(Math.random() * 10) + 1;
+    const num2 = Math.floor(Math.random() * 10) + 1;
+    const operator = Math.random() > 0.5 ? '+' : '-';
+    const question = `${num1} ${operator} ${num2}`;
+    const answer = operator === '+' ? num1 + num2 : num1 - num2;
+    setCaptchaQuestion(question);
+    setCaptchaAnswer(answer.toString());
+    setCaptchaInput('');
+  };
+
+  const getRegisterGateError = () => {
+    if (!isAgeConfirmed) {
+      return 'Please confirm you are 18 years or older.';
+    }
+
+    const normalizedCaptcha = captchaInput.trim();
+    if (
+      !normalizedCaptcha ||
+      Number.isNaN(Number(normalizedCaptcha)) ||
+      Number(normalizedCaptcha) !== Number(captchaAnswer)
+    ) {
+      generateCaptcha();
+      return 'Captcha answer is incorrect.';
+    }
+
+    return null;
   };
 
   const handleLoginSubmit = async () => {
@@ -195,6 +271,11 @@ export default function LoginDialog({
 
     if (password !== confirmPassword) {
       throw new Error('Passwords do not match.');
+    }
+
+    const gateError = getRegisterGateError();
+    if (gateError) {
+      throw new Error(gateError);
     }
 
     const endpoint = `${apiBase.replace(/\/$/, '')}/users/register`;
@@ -314,6 +395,14 @@ export default function LoginDialog({
     setError(null);
     onResetExternalError?.();
 
+    if (currentView === 'register') {
+      const gateError = getRegisterGateError();
+      if (gateError) {
+        setError(gateError);
+        return;
+      }
+    }
+
     try {
       if (currentView === 'register') {
         try {
@@ -393,7 +482,7 @@ export default function LoginDialog({
         </div>
 
         <div className="auth-modal__separator" role="separator">
-          <span>or continue with email</span>
+          <span>OR</span>
         </div>
 
         {errorMessages.length > 0 && (
@@ -499,6 +588,31 @@ export default function LoginDialog({
                   className="auth-modal__input"
                   placeholder="Confirm your password"
                 />
+              </label>
+
+              <label className="auth-modal__label">
+                Captcha
+                <span className="auth-modal__hint">
+                  Solve: {captchaQuestion}
+                </span>
+                <input
+                  type="text"
+                  name="register-captcha"
+                  value={captchaInput}
+                  onChange={(event) => setCaptchaInput(event.target.value)}
+                  required
+                  className="auth-modal__input"
+                  placeholder="Answer"
+                />
+              </label>
+
+              <label className="auth-modal__checkbox">
+                <input
+                  type="checkbox"
+                  checked={isAgeConfirmed}
+                  onChange={() => setIsAgeConfirmed((prev) => !prev)}
+                />
+                <span>{ageConfirmationLabel}</span>
               </label>
             </>
           )}

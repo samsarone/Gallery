@@ -41,6 +41,8 @@ interface InteractionState {
   sharing: boolean;
 }
 
+type VideoAspectLayout = 'landscape' | 'portrait' | 'square';
+
 type NavigatorWithConnection = Navigator & {
   connection?: {
     saveData?: boolean;
@@ -62,6 +64,7 @@ const MUTED_STORAGE_KEY = 'samsar-gallery/mobile-muted';
 const AUTOPLAY_STORAGE_KEY = 'samsar-gallery/mobile-autoplay';
 const MOBILE_AUTOPLAY_RAISE_DELAY = 500;
 const DEFAULT_DESKTOP_ASPECT_RATIO = 9 / 16;
+const DEFAULT_DESKTOP_ASPECT_RATIO_VALUE = '9 / 16';
 
 const clampVolume = (value: number): number =>
   Math.min(1, Math.max(0, value));
@@ -284,16 +287,98 @@ const parseAspectRatio = (value?: string | null): number => {
   }
 };
 
+const formatAspectRatioComponent = (value: number): string => {
+  const rounded = Math.round(value * 10000) / 10000;
+  return Number.isInteger(rounded)
+    ? `${rounded}`
+    : `${rounded}`.replace(/\.?0+$/, '');
+};
+
+const getAspectRatioCssValue = (value?: string | null): string => {
+  if (!value || typeof value !== 'string') {
+    return DEFAULT_DESKTOP_ASPECT_RATIO_VALUE;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return DEFAULT_DESKTOP_ASPECT_RATIO_VALUE;
+  }
+
+  const ratioMatch = trimmed.match(
+    /(\d*\.?\d+)\s*[:x/×X]\s*(\d*\.?\d+)/
+  );
+  if (ratioMatch) {
+    const width = Number(ratioMatch[1]);
+    const height = Number(ratioMatch[2]);
+    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      return `${formatAspectRatioComponent(width)} / ${formatAspectRatioComponent(height)}`;
+    }
+  }
+
+  const numericValue = Number(trimmed);
+  if (Number.isFinite(numericValue) && numericValue > 0) {
+    return formatAspectRatioComponent(numericValue);
+  }
+
+  switch (trimmed.toLowerCase()) {
+    case 'square':
+      return '1 / 1';
+    case 'landscape':
+      return '16 / 9';
+    case 'portrait':
+    case 'vertical':
+      return DEFAULT_DESKTOP_ASPECT_RATIO_VALUE;
+    default:
+      return DEFAULT_DESKTOP_ASPECT_RATIO_VALUE;
+  }
+};
+
+const getAspectRatioLayout = (
+  aspectRatio?: string | null
+): VideoAspectLayout => {
+  const ratio = parseAspectRatio(aspectRatio);
+
+  if (Math.abs(ratio - 1) <= 0.04) {
+    return 'square';
+  }
+
+  return ratio > 1 ? 'landscape' : 'portrait';
+};
+
 const getAspectRatioStyle = (
   aspectRatio?: string | null
-): CSSProperties => ({
-  aspectRatio: parseAspectRatio(aspectRatio)
-});
+): CSSProperties =>
+  ({
+    ['--video-card-aspect-ratio' as '--video-card-aspect-ratio']:
+      getAspectRatioCssValue(aspectRatio)
+  } as CSSProperties);
 
+const greatestCommonDivisor = (left: number, right: number): number => {
+  let currentLeft = Math.abs(Math.trunc(left));
+  let currentRight = Math.abs(Math.trunc(right));
 
+  while (currentRight !== 0) {
+    const remainder = currentLeft % currentRight;
+    currentLeft = currentRight;
+    currentRight = remainder;
+  }
 
+  return currentLeft || 1;
+};
 
+const getIntrinsicAspectRatio = (
+  videoElement: HTMLVideoElement
+): string | null => {
+  const width = Math.round(videoElement.videoWidth);
+  const height = Math.round(videoElement.videoHeight);
 
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  const divisor = greatestCommonDivisor(width, height);
+  return `${width / divisor}:${height / divisor}`;
+};
 
 const mergeVideos = (
   existing: PublishedVideo[],
@@ -1386,13 +1471,59 @@ export default function VideoGallery() {
     [revealVolumeOverlay]
   );
 
+  const updateVideoAspectRatio = useCallback(
+    (videoId: string, nextAspectRatio: string) => {
+      setVideos((previous) => {
+        let didChange = false;
+
+        const nextVideos = previous.map((video) => {
+          if (video.id !== videoId) {
+            return video;
+          }
+
+          const currentAspectRatio =
+            typeof video.aspectRatio === 'string' ? video.aspectRatio.trim() : '';
+          if (currentAspectRatio === nextAspectRatio) {
+            return video;
+          }
+
+          didChange = true;
+          return {
+            ...video,
+            aspectRatio: nextAspectRatio
+          };
+        });
+
+        return didChange ? nextVideos : previous;
+      });
+    },
+    []
+  );
+
+  const handleDesktopVideoLoadedMetadata = useCallback(
+    (videoId: string, event: SyntheticEvent<HTMLVideoElement>) => {
+      const nextAspectRatio = getIntrinsicAspectRatio(event.currentTarget);
+      if (!nextAspectRatio) {
+        return;
+      }
+
+      updateVideoAspectRatio(videoId, nextAspectRatio);
+    },
+    [updateVideoAspectRatio]
+  );
+
   const handleMobileVideoLoadedMetadata = useCallback(
-    (event: SyntheticEvent<HTMLVideoElement>) => {
+    (videoId: string, event: SyntheticEvent<HTMLVideoElement>) => {
+      const videoElement = event.currentTarget;
+      const nextAspectRatio = getIntrinsicAspectRatio(videoElement);
+      if (nextAspectRatio) {
+        updateVideoAspectRatio(videoId, nextAspectRatio);
+      }
+
       if (!isMobile) {
         return;
       }
 
-      const videoElement = event.currentTarget;
       try {
         videoElement.muted = true;
         videoElement.volume = 0;
@@ -1413,7 +1544,7 @@ export default function VideoGallery() {
         ensureMobileVideoPlaying(parsedIndex);
       }
     },
-    [activeFeedIndex, ensureMobileVideoPlaying, isMobile]
+    [activeFeedIndex, ensureMobileVideoPlaying, isMobile, updateVideoAspectRatio]
   );
 
   const handleMobileVideoClick = useCallback(
@@ -3014,12 +3145,13 @@ export default function VideoGallery() {
 
   const renderDesktopVideos = () =>
     videos.map((video) => {
+      const aspectLayout = getAspectRatioLayout(video.aspectRatio);
       const mediaStyle = getAspectRatioStyle(video.aspectRatio);
 
       return (
         <article
           key={video.id}
-          className="video-card"
+          className={`video-card video-card--${aspectLayout}`}
           onClick={() => {
             openVideo(video.id);
           }}
@@ -3032,7 +3164,10 @@ export default function VideoGallery() {
             }
           }}
         >
-          <div className="video-card__media" style={mediaStyle}>
+          <div
+            className={`video-card__media video-card__media--${aspectLayout}`}
+            style={mediaStyle}
+          >
             <video
               src={video.videoUrl}
               muted
@@ -3040,6 +3175,9 @@ export default function VideoGallery() {
               playsInline
               preload="metadata"
               className="video-card__video"
+              onLoadedMetadata={(event) =>
+                handleDesktopVideoLoadedMetadata(video.id, event)
+              }
             />
             <div className="video-card__glow" />
             <div className="video-card__inline-stats">
@@ -3135,7 +3273,9 @@ export default function VideoGallery() {
             loop
             playsInline
             muted={shouldMuteVideo}
-            onLoadedMetadata={handleMobileVideoLoadedMetadata}
+            onLoadedMetadata={(event) =>
+              handleMobileVideoLoadedMetadata(video.id, event)
+            }
             onClick={() => handleMobileVideoClick(index)}
             preload={isActive ? 'auto' : 'metadata'}
           />

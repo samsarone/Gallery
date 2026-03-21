@@ -321,6 +321,11 @@ a {
   color: var(--text-secondary);
 }
 
+.auth-modal__hint {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
 .auth-modal__input {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -341,6 +346,19 @@ a {
   color: var(--error);
   font-size: 0.85rem;
   text-align: center;
+}
+
+.auth-modal__checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.auth-modal__checkbox input {
+  margin-top: 0.2rem;
+  accent-color: var(--accent);
 }
 
 .auth-modal__submit {
@@ -562,7 +580,7 @@ a {
   overflow: hidden;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.04);
-  aspect-ratio: 9 / 16;
+  aspect-ratio: var(--video-card-aspect-ratio, 9 / 16);
 }
 
 .video-card__video {
@@ -573,7 +591,7 @@ a {
   filter: brightness(0.9);
   transition: filter 300ms ease;
   background: #020205;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .video-card:hover .video-card__video {
