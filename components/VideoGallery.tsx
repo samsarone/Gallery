@@ -10,6 +10,7 @@ import {
   useRef,
   useState
 } from 'react';
+import type { CSSProperties } from 'react';
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent
@@ -36,6 +37,8 @@ interface InteractionState {
 
 type VideoAspectLayout = 'landscape' | 'portrait' | 'square';
 type GalleryViewMode = 'desktop' | 'mobile';
+type GalleryDisplayMode = 'feed' | 'grid';
+type GalleryAspectFilter = 'landscape' | 'portrait';
 
 type NavigatorWithConnection = Navigator & {
   connection?: {
@@ -281,6 +284,51 @@ const parseAspectRatio = (value?: string | null): number => {
   }
 };
 
+const formatAspectRatioComponent = (value: number): string => {
+  const rounded = Math.round(value * 10000) / 10000;
+  return Number.isInteger(rounded)
+    ? `${rounded}`
+    : `${rounded}`.replace(/\.?0+$/, '');
+};
+
+const getAspectRatioCssValue = (value?: string | null): string => {
+  if (!value || typeof value !== 'string') {
+    return '9 / 16';
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '9 / 16';
+  }
+
+  const ratioMatch = trimmed.match(
+    /(\d*\.?\d+)\s*[:x/×X]\s*(\d*\.?\d+)/
+  );
+  if (ratioMatch) {
+    const width = Number(ratioMatch[1]);
+    const height = Number(ratioMatch[2]);
+    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      return `${formatAspectRatioComponent(width)} / ${formatAspectRatioComponent(height)}`;
+    }
+  }
+
+  const numericValue = Number(trimmed);
+  if (Number.isFinite(numericValue) && numericValue > 0) {
+    return formatAspectRatioComponent(numericValue);
+  }
+
+  switch (trimmed.toLowerCase()) {
+    case 'landscape':
+      return '16 / 9';
+    case 'square':
+      return '1 / 1';
+    case 'portrait':
+    case 'vertical':
+    default:
+      return '9 / 16';
+  }
+};
+
 const getAspectRatioLayout = (
   aspectRatio?: string | null
 ): VideoAspectLayout => {
@@ -295,7 +343,7 @@ const getAspectRatioLayout = (
 
 const isVisibleInGalleryMode = (
   video: PublishedVideo,
-  viewMode: GalleryViewMode
+  aspectFilter: GalleryAspectFilter
 ): boolean => {
   const hasExplicitAspectRatio =
     typeof video.aspectRatio === 'string' &&
@@ -306,9 +354,78 @@ const isVisibleInGalleryMode = (
   }
 
   const aspectLayout = getAspectRatioLayout(video.aspectRatio);
-  return viewMode === 'mobile'
+  return aspectFilter === 'portrait'
     ? aspectLayout === 'portrait'
     : aspectLayout !== 'portrait';
+};
+
+const getMosaicTileStyle = (video: PublishedVideo): CSSProperties =>
+  ({
+    ['--gallery-tile-aspect-ratio' as '--gallery-tile-aspect-ratio']:
+      getAspectRatioCssValue(video.aspectRatio)
+  } as CSSProperties);
+
+const getAverageAspectRatio = (
+  videos: PublishedVideo[],
+  aspectFilter: GalleryAspectFilter
+): number => {
+  if (videos.length === 0) {
+    return aspectFilter === 'portrait' ? 9 / 16 : 16 / 9;
+  }
+
+  const totalAspectRatio = videos.reduce(
+    (total, video) => total + parseAspectRatio(video.aspectRatio),
+    0
+  );
+
+  return totalAspectRatio / videos.length;
+};
+
+const getMosaicGridStyle = (
+  viewMode: GalleryViewMode,
+  aspectFilter: GalleryAspectFilter,
+  videos: PublishedVideo[],
+  containerAspectRatio: number
+): CSSProperties | undefined => {
+  if (viewMode !== 'desktop') {
+    return undefined;
+  }
+
+  const safeCount = Math.max(1, videos.length);
+  const targetAspectRatio = getAverageAspectRatio(videos, aspectFilter);
+  const safeContainerAspectRatio = Number.isFinite(containerAspectRatio)
+    ? Math.max(0.4, Math.min(containerAspectRatio, 4))
+    : 16 / 9;
+  const maxColumns = Math.min(
+    safeCount,
+    aspectFilter === 'portrait' ? 6 : 4
+  );
+  let bestColumns = 1;
+  let bestRows = safeCount;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (let candidateColumns = 1; candidateColumns <= maxColumns; candidateColumns += 1) {
+    const candidateRows = Math.ceil(safeCount / candidateColumns);
+    const emptySlots = candidateColumns * candidateRows - safeCount;
+    const cellAspectRatio =
+      (safeContainerAspectRatio * candidateRows) / candidateColumns;
+    const aspectScore = Math.abs(
+      Math.log(cellAspectRatio / targetAspectRatio)
+    );
+    const emptySlotScore = emptySlots / safeCount;
+    const score = aspectScore + emptySlotScore * 0.72;
+
+    if (score < bestScore) {
+      bestScore = score;
+      bestColumns = candidateColumns;
+      bestRows = candidateRows;
+    }
+  }
+
+  return {
+    ['--gallery-grid-columns' as '--gallery-grid-columns']: `${bestColumns}`,
+    ['--gallery-grid-rows' as '--gallery-grid-rows']: `${bestRows}`
+  } as CSSProperties;
 };
 
 const greatestCommonDivisor = (left: number, right: number): number => {
@@ -602,6 +719,11 @@ export default function VideoGallery() {
   const [isDesktopPlaying, setIsDesktopPlaying] = useState<boolean>(true);
   const [desktopControlsVisible, setDesktopControlsVisible] =
     useState<boolean>(false);
+  const [displayMode, setDisplayMode] = useState<GalleryDisplayMode>('feed');
+  const [aspectFilter, setAspectFilter] =
+    useState<GalleryAspectFilter>('landscape');
+  const [desktopGridAspectRatio, setDesktopGridAspectRatio] =
+    useState<number>(16 / 9);
 
   const mobileFeedRef = useRef<HTMLDivElement | null>(null);
   const feedItemRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -628,6 +750,7 @@ export default function VideoGallery() {
   const activeFeedIndexRef = useRef<number>(0);
   const mobileMutedRef = useRef<boolean>(false);
   const mobileVolumeRef = useRef<number>(DEFAULT_MOBILE_VOLUME);
+  const userSelectedAspectRef = useRef<boolean>(false);
   const desktopControlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -637,9 +760,9 @@ export default function VideoGallery() {
   const visibleVideos = useMemo(
     () =>
       videos.filter((video) =>
-        isVisibleInGalleryMode(video, galleryViewMode)
+        isVisibleInGalleryMode(video, aspectFilter)
       ),
-    [galleryViewMode, videos]
+    [aspectFilter, videos]
   );
   const activeVisibleVideo =
     visibleVideos[activeFeedIndex] ?? visibleVideos[0] ?? null;
@@ -647,6 +770,28 @@ export default function VideoGallery() {
   useEffect(() => {
     commentsMapRef.current = commentsMap;
   }, [commentsMap]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const updateDesktopGridAspectRatio = () => {
+      const topNav = document.querySelector('.top-nav');
+      const topNavHeight =
+        topNav instanceof HTMLElement
+          ? topNav.getBoundingClientRect().height
+          : 0;
+      const galleryHeight = Math.max(1, window.innerHeight - topNavHeight);
+      setDesktopGridAspectRatio(window.innerWidth / galleryHeight);
+    };
+
+    updateDesktopGridAspectRatio();
+    window.addEventListener('resize', updateDesktopGridAspectRatio);
+
+    return () =>
+      window.removeEventListener('resize', updateDesktopGridAspectRatio);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -2356,6 +2501,15 @@ export default function VideoGallery() {
     }
   }, []);
 
+  const showDesktopControls = useCallback(() => {
+    setDesktopControlsVisible(true);
+    clearDesktopControlsTimeout();
+    desktopControlsTimeoutRef.current = setTimeout(() => {
+      setDesktopControlsVisible(false);
+      desktopControlsTimeoutRef.current = null;
+    }, DESKTOP_CONTROLS_HIDE_DELAY);
+  }, [clearDesktopControlsTimeout]);
+
   const revealDesktopControls = useCallback(
     (event?: ReactPointerEvent<HTMLElement>) => {
       if (isMobile) {
@@ -2370,15 +2524,15 @@ export default function VideoGallery() {
         return;
       }
 
-      setDesktopControlsVisible(true);
-      clearDesktopControlsTimeout();
-      desktopControlsTimeoutRef.current = setTimeout(() => {
-        setDesktopControlsVisible(false);
-        desktopControlsTimeoutRef.current = null;
-      }, DESKTOP_CONTROLS_HIDE_DELAY);
+      showDesktopControls();
     },
-    [clearDesktopControlsTimeout, isMobile]
+    [isMobile, showDesktopControls]
   );
+
+  const selectAspectFilter = useCallback((nextFilter: GalleryAspectFilter) => {
+    userSelectedAspectRef.current = true;
+    setAspectFilter(nextFilter);
+  }, []);
 
   const selectVisibleVideo = useCallback(
     (index: number, behavior: ScrollBehavior = 'smooth') => {
@@ -2395,11 +2549,14 @@ export default function VideoGallery() {
       }
 
       if (isMobile) {
+        setDisplayMode('feed');
         setIsMobileAutoplayEnabled(true);
         window.requestAnimationFrame(() => {
-          feedItemRefs.current[nextIndex]?.scrollIntoView({
-            behavior,
-            block: 'start'
+          window.requestAnimationFrame(() => {
+            feedItemRefs.current[nextIndex]?.scrollIntoView({
+              behavior,
+              block: 'start'
+            });
           });
         });
         return;
@@ -2407,9 +2564,10 @@ export default function VideoGallery() {
 
       setSelectedVideoId(nextVideo.id);
       setIsDesktopPlaying(true);
-      revealDesktopControls();
+      setDisplayMode('feed');
+      showDesktopControls();
     },
-    [isMobile, revealDesktopControls, visibleVideos]
+    [isMobile, showDesktopControls, visibleVideos]
   );
 
   const changeDesktopVolume = useCallback((nextValue: number) => {
@@ -2448,6 +2606,14 @@ export default function VideoGallery() {
   }, [clearScheduledAutoplayRaise, galleryViewMode]);
 
   useEffect(() => {
+    if (userSelectedAspectRef.current) {
+      return;
+    }
+
+    setAspectFilter(isMobile ? 'portrait' : 'landscape');
+  }, [isMobile]);
+
+  useEffect(() => {
     setActiveFeedIndex((currentIndex) => {
       if (visibleVideos.length === 0) {
         return 0;
@@ -2466,11 +2632,26 @@ export default function VideoGallery() {
       (video) => video.id === selectedVideoId
     );
     if (selectedIndex === -1) {
+      if (visibleVideos[0]) {
+        setSelectedVideoId(visibleVideos[0].id);
+        setActiveFeedIndex(0);
+      }
       return;
     }
 
     setActiveFeedIndex(selectedIndex);
   }, [isMobile, selectedVideoId, visibleVideos]);
+
+  useEffect(() => {
+    if (visibleVideos.length === 0) {
+      setActiveFeedIndex(0);
+      return;
+    }
+
+    if (activeFeedIndex >= visibleVideos.length) {
+      setActiveFeedIndex(0);
+    }
+  }, [activeFeedIndex, visibleVideos.length]);
 
   useEffect(() => {
     if (isMobile) {
@@ -3132,7 +3313,6 @@ export default function VideoGallery() {
   );
 
   const showSkeleton = isLoading;
-  const visibleFormatLabel = isMobile ? 'portrait' : 'landscape';
 
   const isVolumeEffectivelyMuted =
     mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
@@ -3154,6 +3334,64 @@ export default function VideoGallery() {
   const desktopVolumePercent = Math.round(desktopVolume * 100);
   const isDesktopEffectivelyMuted =
     desktopMuted || desktopVolume <= MIN_AUDIBLE_VOLUME;
+  const visibleFormatLabel = aspectFilter === 'portrait' ? 'portrait' : 'landscape';
+  const feedModeLabel = displayMode === 'feed' ? 'Feed view' : 'Grid view';
+
+  const renderGalleryTopbar = () => (
+    <header
+      className="gallery-feed-topbar"
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <div className="gallery-feed-heading">
+        <span>T2V Gallery</span>
+        <strong>{feedModeLabel}</strong>
+      </div>
+
+      <div className="gallery-feed-toolbar" aria-label="Gallery view controls">
+        <button
+          type="button"
+          className={`gallery-toolbar-button${
+            displayMode === 'feed' ? ' gallery-toolbar-button--active' : ''
+          }`}
+          onClick={() => setDisplayMode('feed')}
+          title="Feed view"
+        >
+          Feed
+        </button>
+        <button
+          type="button"
+          className={`gallery-toolbar-button${
+            displayMode === 'grid' ? ' gallery-toolbar-button--active' : ''
+          }`}
+          onClick={() => setDisplayMode('grid')}
+          title="Grid view"
+        >
+          Grid
+        </button>
+        <span className="gallery-toolbar-divider" aria-hidden="true" />
+        <button
+          type="button"
+          className={`gallery-toolbar-button${
+            aspectFilter === 'landscape' ? ' gallery-toolbar-button--active' : ''
+          }`}
+          onClick={() => selectAspectFilter('landscape')}
+          title="Show landscape videos"
+        >
+          16:9
+        </button>
+        <button
+          type="button"
+          className={`gallery-toolbar-button${
+            aspectFilter === 'portrait' ? ' gallery-toolbar-button--active' : ''
+          }`}
+          onClick={() => selectAspectFilter('portrait')}
+          title="Show portrait videos"
+        >
+          9:16
+        </button>
+      </div>
+    </header>
+  );
 
   const renderDesktopStage = () => {
     if (!activeVisibleVideo) {
@@ -3326,6 +3564,93 @@ export default function VideoGallery() {
     );
   };
 
+  const renderGridMosaic = () => (
+    <section
+      className={`gallery-mosaic gallery-mosaic--${galleryViewMode} gallery-mosaic--${aspectFilter}`}
+      aria-label={`${visibleFormatLabel} video grid`}
+      style={getMosaicGridStyle(
+        galleryViewMode,
+        aspectFilter,
+        visibleVideos,
+        desktopGridAspectRatio
+      )}
+    >
+      {visibleVideos.map((video, index) => {
+        const aspectLayout = getAspectRatioLayout(video.aspectRatio);
+        const interaction = interactionMap[video.id] ?? DEFAULT_INTERACTION_STATE;
+
+        return (
+          <article
+            className={`gallery-mosaic__item gallery-mosaic__item--${aspectLayout}`}
+            key={video.id}
+            style={getMosaicTileStyle(video)}
+          >
+            <button
+              type="button"
+              className="gallery-mosaic__media"
+              onClick={() => selectVisibleVideo(index)}
+              title={video.title}
+            >
+              <video
+                src={video.videoUrl}
+                muted
+                loop
+                playsInline
+                preload="metadata"
+                className="gallery-mosaic__video"
+                onLoadedMetadata={(event) =>
+                  handleDesktopVideoLoadedMetadata(video.id, event)
+                }
+              />
+              <div className="gallery-mosaic__shade" />
+              <div className="gallery-mosaic__meta">
+                <strong>{video.title}</strong>
+                {video.creatorHandle && <span>@{video.creatorHandle}</span>}
+              </div>
+            </button>
+
+            <div className="gallery-mosaic__actions">
+              <button
+                type="button"
+                className={`gallery-mosaic__action${
+                  video.viewerHasLiked ? ' gallery-mosaic__action--active' : ''
+                }`}
+                onClick={() => toggleLike(video.id)}
+                disabled={interaction.liking}
+                title={video.viewerHasLiked ? 'Unlike' : 'Like'}
+              >
+                <span>♥</span>
+                <span>{video.stats.likes.toLocaleString()}</span>
+              </button>
+              <button
+                type="button"
+                className="gallery-mosaic__action"
+                onClick={() => {
+                  setCommentPanelVideoId(video.id);
+                  void ensureCommentsLoaded(video.id);
+                }}
+                title="Comments"
+              >
+                <span>💬</span>
+                <span>{video.stats.comments.toLocaleString()}</span>
+              </button>
+              <button
+                type="button"
+                className="gallery-mosaic__action"
+                onClick={() => shareVideo(video)}
+                disabled={interaction.sharing}
+                title="Share"
+              >
+                <span>⤴</span>
+                <span>{video.stats.shares.toLocaleString()}</span>
+              </button>
+            </div>
+          </article>
+        );
+      })}
+    </section>
+  );
+
   const renderMobileFeed = () =>
     visibleVideos.map((video, index) => {
       const interaction =
@@ -3454,6 +3779,8 @@ export default function VideoGallery() {
           isMobile ? ' gallery--mobile' : ' gallery--desktop'
         }`}
       >
+        {renderGalleryTopbar()}
+
         {showSkeleton && (
           <div className="masonry-grid" aria-hidden="true">
             {placeholderItems}
@@ -3483,7 +3810,9 @@ export default function VideoGallery() {
 
         {!showSkeleton && !error && visibleVideos.length > 0 && (
           <>
-            {isMobile ? (
+            {displayMode === 'grid' ? (
+              renderGridMosaic()
+            ) : isMobile ? (
               <div className="mobile-feed" ref={mobileFeedRef}>
                 {renderMobileFeed()}
               </div>
