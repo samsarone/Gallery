@@ -10,7 +10,6 @@ import {
   useRef,
   useState
 } from 'react';
-import type { CSSProperties } from 'react';
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent
@@ -22,15 +21,9 @@ import type {
   VideoStats
 } from '@/lib/types';
 import {
-  clearAuthToken,
-  getExistingAuthToken,
-  verifyAuthToken
-} from '@/lib/auth';
-import {
   normalizeComment,
   parseCommentsPayload
 } from '@/lib/comments';
-import VideoModal from './VideoModal';
 import VideoOverlayContent from './VideoOverlayContent';
 import volumeStyles from './MobileVolumeControl.module.css';
 
@@ -42,6 +35,7 @@ interface InteractionState {
 }
 
 type VideoAspectLayout = 'landscape' | 'portrait' | 'square';
+type GalleryViewMode = 'desktop' | 'mobile';
 
 type NavigatorWithConnection = Navigator & {
   connection?: {
@@ -59,12 +53,12 @@ const MOBILE_BREAKPOINT = 768;
 const DEFAULT_MOBILE_VOLUME = 0.65;
 const MIN_AUDIBLE_VOLUME = 0.02;
 const MOBILE_VOLUME_HIDE_DELAY = 2200;
+const DESKTOP_CONTROLS_HIDE_DELAY = 1700;
 const VOLUME_STORAGE_KEY = 'samsar-gallery/mobile-volume';
 const MUTED_STORAGE_KEY = 'samsar-gallery/mobile-muted';
 const AUTOPLAY_STORAGE_KEY = 'samsar-gallery/mobile-autoplay';
 const MOBILE_AUTOPLAY_RAISE_DELAY = 500;
 const DEFAULT_DESKTOP_ASPECT_RATIO = 9 / 16;
-const DEFAULT_DESKTOP_ASPECT_RATIO_VALUE = '9 / 16';
 
 const clampVolume = (value: number): number =>
   Math.min(1, Math.max(0, value));
@@ -287,52 +281,6 @@ const parseAspectRatio = (value?: string | null): number => {
   }
 };
 
-const formatAspectRatioComponent = (value: number): string => {
-  const rounded = Math.round(value * 10000) / 10000;
-  return Number.isInteger(rounded)
-    ? `${rounded}`
-    : `${rounded}`.replace(/\.?0+$/, '');
-};
-
-const getAspectRatioCssValue = (value?: string | null): string => {
-  if (!value || typeof value !== 'string') {
-    return DEFAULT_DESKTOP_ASPECT_RATIO_VALUE;
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return DEFAULT_DESKTOP_ASPECT_RATIO_VALUE;
-  }
-
-  const ratioMatch = trimmed.match(
-    /(\d*\.?\d+)\s*[:x/×X]\s*(\d*\.?\d+)/
-  );
-  if (ratioMatch) {
-    const width = Number(ratioMatch[1]);
-    const height = Number(ratioMatch[2]);
-    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
-      return `${formatAspectRatioComponent(width)} / ${formatAspectRatioComponent(height)}`;
-    }
-  }
-
-  const numericValue = Number(trimmed);
-  if (Number.isFinite(numericValue) && numericValue > 0) {
-    return formatAspectRatioComponent(numericValue);
-  }
-
-  switch (trimmed.toLowerCase()) {
-    case 'square':
-      return '1 / 1';
-    case 'landscape':
-      return '16 / 9';
-    case 'portrait':
-    case 'vertical':
-      return DEFAULT_DESKTOP_ASPECT_RATIO_VALUE;
-    default:
-      return DEFAULT_DESKTOP_ASPECT_RATIO_VALUE;
-  }
-};
-
 const getAspectRatioLayout = (
   aspectRatio?: string | null
 ): VideoAspectLayout => {
@@ -345,13 +293,23 @@ const getAspectRatioLayout = (
   return ratio > 1 ? 'landscape' : 'portrait';
 };
 
-const getAspectRatioStyle = (
-  aspectRatio?: string | null
-): CSSProperties =>
-  ({
-    ['--video-card-aspect-ratio' as '--video-card-aspect-ratio']:
-      getAspectRatioCssValue(aspectRatio)
-  } as CSSProperties);
+const isVisibleInGalleryMode = (
+  video: PublishedVideo,
+  viewMode: GalleryViewMode
+): boolean => {
+  const hasExplicitAspectRatio =
+    typeof video.aspectRatio === 'string' &&
+    video.aspectRatio.trim().length > 0;
+
+  if (!hasExplicitAspectRatio) {
+    return true;
+  }
+
+  const aspectLayout = getAspectRatioLayout(video.aspectRatio);
+  return viewMode === 'mobile'
+    ? aspectLayout === 'portrait'
+    : aspectLayout !== 'portrait';
+};
 
 const greatestCommonDivisor = (left: number, right: number): number => {
   let currentLeft = Math.abs(Math.trunc(left));
@@ -628,8 +586,6 @@ export default function VideoGallery() {
   const [interactionMap, setInteractionMap] = useState<
     Record<string, InteractionState>
   >({});
-  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [mobileVolume, setMobileVolume] = useState<number>(
@@ -639,10 +595,17 @@ export default function VideoGallery() {
   const [isMobileAutoplayEnabled, setIsMobileAutoplayEnabled] =
     useState<boolean>(true);
   const [showMobileVolume, setShowMobileVolume] = useState<boolean>(false);
+  const [desktopMuted, setDesktopMuted] = useState<boolean>(true);
+  const [desktopVolume, setDesktopVolume] = useState<number>(
+    DEFAULT_MOBILE_VOLUME
+  );
+  const [isDesktopPlaying, setIsDesktopPlaying] = useState<boolean>(true);
+  const [desktopControlsVisible, setDesktopControlsVisible] =
+    useState<boolean>(false);
 
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
   const mobileFeedRef = useRef<HTMLDivElement | null>(null);
   const feedItemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const desktopVideoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const isMountedRef = useRef<boolean>(false);
   const pendingCursorRef = useRef<string | null>(null);
   const authNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -652,7 +615,6 @@ export default function VideoGallery() {
   const volumeOverlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
-  const authCheckIdRef = useRef<number>(0);
   const lastAudibleVolumeRef = useRef<number>(DEFAULT_MOBILE_VOLUME);
   const adjustingVolumeRef = useRef<boolean>(false);
   const hasBootstrappedRef = useRef<boolean>(false);
@@ -666,78 +628,25 @@ export default function VideoGallery() {
   const activeFeedIndexRef = useRef<number>(0);
   const mobileMutedRef = useRef<boolean>(false);
   const mobileVolumeRef = useRef<number>(DEFAULT_MOBILE_VOLUME);
+  const desktopControlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
   const commentsMapRef = useRef<Record<string, VideoCommentState>>(commentsMap);
 
-  const performAuthCheck = useCallback(async () => {
-    const checkId = authCheckIdRef.current + 1;
-    authCheckIdRef.current = checkId;
-
-    const token = getExistingAuthToken();
-    if (!token) {
-      setIsAuthenticated(false);
-      setIsAuthLoading(false);
-      return;
-    }
-
-    setIsAuthLoading(true);
-    const profile = await verifyAuthToken(token);
-
-    if (authCheckIdRef.current !== checkId) {
-      return;
-    }
-
-    if (profile) {
-      setIsAuthenticated(true);
-    } else {
-      clearAuthToken();
-      setIsAuthenticated(false);
-    }
-
-    setIsAuthLoading(false);
-  }, []);
+  const galleryViewMode: GalleryViewMode = isMobile ? 'mobile' : 'desktop';
+  const visibleVideos = useMemo(
+    () =>
+      videos.filter((video) =>
+        isVisibleInGalleryMode(video, galleryViewMode)
+      ),
+    [galleryViewMode, videos]
+  );
+  const activeVisibleVideo =
+    visibleVideos[activeFeedIndex] ?? visibleVideos[0] ?? null;
 
   useEffect(() => {
     commentsMapRef.current = commentsMap;
   }, [commentsMap]);
-
-  useEffect(() => {
-    performAuthCheck();
-  }, [performAuthCheck]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !('BroadcastChannel' in window)) {
-      return;
-    }
-
-    const channel = new BroadcastChannel('oauth_channel');
-    const handler = () => {
-      performAuthCheck();
-    };
-
-    channel.addEventListener('message', handler);
-    return () => {
-      channel.removeEventListener('message', handler);
-      channel.close();
-    };
-  }, [performAuthCheck]);
-
-  useEffect(() => {
-    if (isAuthLoading) {
-      return;
-    }
-
-    if (!isAuthenticated) {
-      hasBootstrappedRef.current = false;
-      setSelectedVideoId(null);
-      setCommentPanelVideoId(null);
-      setVideos([]);
-      setNextCursor(null);
-      setHasMore(true);
-      setError(null);
-      setLoadMoreError(null);
-      setIsLoading(true);
-    }
-  }, [isAuthLoading, isAuthenticated]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1181,11 +1090,11 @@ export default function VideoGallery() {
         return;
       }
 
-      if (index < 0 || index >= videos.length) {
+      if (index < 0 || index >= visibleVideos.length) {
         return;
       }
 
-      const video = videos[index];
+      const video = visibleVideos[index];
       if (!video || prefetchedMobileVideoIdsRef.current.has(video.id)) {
         return;
       }
@@ -1234,7 +1143,7 @@ export default function VideoGallery() {
         prefetchedMobileVideoIdsRef.current.delete(video.id);
       }
     },
-    [isMobile, videos]
+    [isMobile, visibleVideos]
   );
 
   const commitMobileVolume = useCallback(
@@ -1321,23 +1230,6 @@ export default function VideoGallery() {
       }
     });
   }, [isMobileAutoplayEnabled, mobileMuted, mobileVolume]);
-
-  const handleModalVolumeChange = useCallback(
-    (volume: number, muted: boolean) => {
-      const clamped = clampVolume(volume);
-
-      if (muted) {
-        if (clamped > MIN_AUDIBLE_VOLUME) {
-          lastAudibleVolumeRef.current = clamped;
-        }
-        commitMobileVolume(0);
-        return;
-      }
-
-      commitMobileVolume(clamped);
-    },
-    [commitMobileVolume]
-  );
 
   const updateVolumeFromTrack = useCallback(
     (track: HTMLDivElement, clientY: number) => {
@@ -1653,7 +1545,7 @@ export default function VideoGallery() {
 
   const fetchVideos = useCallback(
     async (cursor?: string | null, options?: { background?: boolean }) => {
-      if (!isMountedRef.current || !isAuthenticated) {
+      if (!isMountedRef.current) {
         return;
       }
 
@@ -1815,15 +1707,11 @@ export default function VideoGallery() {
         pendingCursorRef.current = null;
       }
     },
-    [isAuthenticated]
+    []
   );
 
   const ensureCommentsLoaded = useCallback(
     async (videoId: string) => {
-      if (!isAuthenticated) {
-        return;
-      }
-
       const current =
         commentsMapRef.current[videoId] ?? createInitialCommentState();
       if (current.hasLoadedInitial || current.isLoading) {
@@ -1939,7 +1827,7 @@ export default function VideoGallery() {
         });
       }
     },
-    [isAuthenticated]
+    []
   );
 
   const loadMoreComments = useCallback(
@@ -2062,15 +1950,11 @@ export default function VideoGallery() {
         });
       }
     },
-    [isAuthenticated]
+    []
   );
 
   const fetchSingleVideo = useCallback(
     async (videoId: string) => {
-      if (!isAuthenticated) {
-        return;
-      }
-
       setIsLoading(true);
       setError(null);
 
@@ -2121,7 +2005,7 @@ export default function VideoGallery() {
         setIsLoading(false);
       }
     },
-    [ensureCommentsLoaded, isAuthenticated]
+    [ensureCommentsLoaded]
   );
 
   const submitComment = useCallback(
@@ -2465,6 +2349,75 @@ export default function VideoGallery() {
     fetchVideos(cursor);
   };
 
+  const clearDesktopControlsTimeout = useCallback(() => {
+    if (desktopControlsTimeoutRef.current) {
+      clearTimeout(desktopControlsTimeoutRef.current);
+      desktopControlsTimeoutRef.current = null;
+    }
+  }, []);
+
+  const revealDesktopControls = useCallback(
+    (event?: ReactPointerEvent<HTMLElement>) => {
+      if (isMobile) {
+        return;
+      }
+
+      const target = event?.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest('.comment-drawer')
+      ) {
+        return;
+      }
+
+      setDesktopControlsVisible(true);
+      clearDesktopControlsTimeout();
+      desktopControlsTimeoutRef.current = setTimeout(() => {
+        setDesktopControlsVisible(false);
+        desktopControlsTimeoutRef.current = null;
+      }, DESKTOP_CONTROLS_HIDE_DELAY);
+    },
+    [clearDesktopControlsTimeout, isMobile]
+  );
+
+  const selectVisibleVideo = useCallback(
+    (index: number, behavior: ScrollBehavior = 'smooth') => {
+      if (visibleVideos.length === 0) {
+        return;
+      }
+
+      const nextIndex = (index + visibleVideos.length) % visibleVideos.length;
+      const nextVideo = visibleVideos[nextIndex];
+      setActiveFeedIndex(nextIndex);
+
+      if (!nextVideo) {
+        return;
+      }
+
+      if (isMobile) {
+        setIsMobileAutoplayEnabled(true);
+        window.requestAnimationFrame(() => {
+          feedItemRefs.current[nextIndex]?.scrollIntoView({
+            behavior,
+            block: 'start'
+          });
+        });
+        return;
+      }
+
+      setSelectedVideoId(nextVideo.id);
+      setIsDesktopPlaying(true);
+      revealDesktopControls();
+    },
+    [isMobile, revealDesktopControls, visibleVideos]
+  );
+
+  const changeDesktopVolume = useCallback((nextValue: number) => {
+    const normalized = clampVolume(nextValue);
+    setDesktopVolume(normalized);
+    setDesktopMuted(normalized <= MIN_AUDIBLE_VOLUME);
+  }, []);
+
   useEffect(() => {
     isMountedRef.current = true;
     if (
@@ -2478,6 +2431,96 @@ export default function VideoGallery() {
       isMountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    setActiveFeedIndex(0);
+    setCommentPanelVideoId(null);
+    clearScheduledAutoplayRaise();
+
+    if (galleryViewMode === 'mobile') {
+      setSelectedVideoId(null);
+      return;
+    }
+
+    if (visibleVideos[0]) {
+      setSelectedVideoId((current) => current ?? visibleVideos[0].id);
+    }
+  }, [clearScheduledAutoplayRaise, galleryViewMode]);
+
+  useEffect(() => {
+    setActiveFeedIndex((currentIndex) => {
+      if (visibleVideos.length === 0) {
+        return 0;
+      }
+
+      return Math.min(currentIndex, visibleVideos.length - 1);
+    });
+  }, [visibleVideos.length]);
+
+  useEffect(() => {
+    if (!selectedVideoId || isMobile) {
+      return;
+    }
+
+    const selectedIndex = visibleVideos.findIndex(
+      (video) => video.id === selectedVideoId
+    );
+    if (selectedIndex === -1) {
+      return;
+    }
+
+    setActiveFeedIndex(selectedIndex);
+  }, [isMobile, selectedVideoId, visibleVideos]);
+
+  useEffect(() => {
+    if (isMobile) {
+      return;
+    }
+
+    const activeId = activeVisibleVideo?.id;
+    const effectiveMuted =
+      desktopMuted || desktopVolume <= MIN_AUDIBLE_VOLUME;
+    const resolvedVolume = effectiveMuted ? 0 : clampVolume(desktopVolume);
+
+    Object.entries(desktopVideoRefs.current).forEach(([videoId, element]) => {
+      if (!(element instanceof HTMLVideoElement)) {
+        return;
+      }
+
+      const isActive = videoId === activeId;
+
+      try {
+        element.muted = effectiveMuted;
+        element.volume = resolvedVolume;
+      } catch {
+        // Ignore setter failures on unsupported browsers.
+      }
+
+      if (isActive && isDesktopPlaying) {
+        if (element.ended) {
+          element.currentTime = 0;
+        }
+        void element.play().catch(() => undefined);
+        return;
+      }
+
+      element.pause();
+    });
+  }, [
+    activeVisibleVideo?.id,
+    desktopMuted,
+    desktopVolume,
+    isDesktopPlaying,
+    isMobile,
+    visibleVideos.length
+  ]);
+
+  useEffect(
+    () => () => {
+      clearDesktopControlsTimeout();
+    },
+    [clearDesktopControlsTimeout]
+  );
 
   useEffect(() => {
     activeFeedIndexRef.current = activeFeedIndex;
@@ -2518,7 +2561,7 @@ export default function VideoGallery() {
       return;
     }
 
-    const index = videos.findIndex(
+    const index = visibleVideos.findIndex(
       (video) => video.id === pendingMobileVideoId
     );
     if (index === -1) {
@@ -2555,14 +2598,10 @@ export default function VideoGallery() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [isMobile, pendingMobileVideoId, videos]);
+  }, [isMobile, pendingMobileVideoId, visibleVideos]);
 
   useEffect(() => {
     if (initialVideoId === undefined) {
-      return;
-    }
-
-    if (!isAuthenticated || isAuthLoading) {
       return;
     }
 
@@ -2582,7 +2621,7 @@ export default function VideoGallery() {
     } else {
       fetchVideos();
     }
-  }, [fetchSingleVideo, fetchVideos, initialVideoId, isAuthenticated, isAuthLoading]);
+  }, [fetchSingleVideo, fetchVideos, initialVideoId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -2597,58 +2636,6 @@ export default function VideoGallery() {
     window.addEventListener('resize', updateBreakpoint);
     return () => window.removeEventListener('resize', updateBreakpoint);
   }, []);
-
-  useEffect(() => {
-    if (!supportsIntersectionObserver || isMobile) {
-      return;
-    }
-
-    const sentinel = sentinelRef.current;
-    if (!sentinel) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (
-            entry.isIntersecting &&
-            hasMore &&
-            !isLoading &&
-            !isFetchingMore &&
-            nextCursor &&
-            !pendingCursorRef.current
-          ) {
-            observer.unobserve(entry.target);
-            fetchVideos(nextCursor).finally(() => {
-              if (isMountedRef.current && sentinelRef.current) {
-                observer.observe(sentinelRef.current);
-              }
-            });
-          }
-        });
-      },
-      {
-        root: null,
-        rootMargin: '320px 0px',
-        threshold: 0
-      }
-    );
-
-    observer.observe(sentinel);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [
-    fetchVideos,
-    hasMore,
-    isFetchingMore,
-    isLoading,
-    isMobile,
-    nextCursor,
-    supportsIntersectionObserver
-  ]);
 
   useEffect(() => {
     if (
@@ -2695,7 +2682,7 @@ export default function VideoGallery() {
       return;
     }
 
-    const remaining = videos.length - 1 - activeFeedIndex;
+    const remaining = visibleVideos.length - 1 - activeFeedIndex;
     if (remaining > MOBILE_PREFETCH_THRESHOLD) {
       return;
     }
@@ -2710,11 +2697,44 @@ export default function VideoGallery() {
     isMobile,
     loadMoreError,
     nextCursor,
-    videos
+    videos,
+    visibleVideos.length
   ]);
 
   useEffect(() => {
-    if (!isMobile || videos.length === 0) {
+    if (
+      isMobile ||
+      !hasMore ||
+      !nextCursor ||
+      isLoading ||
+      isFetchingMore ||
+      loadMoreError ||
+      pendingCursorRef.current ||
+      visibleVideos.length === 0
+    ) {
+      return;
+    }
+
+    const remaining = visibleVideos.length - 1 - activeFeedIndex;
+    if (remaining > MOBILE_PREFETCH_THRESHOLD) {
+      return;
+    }
+
+    fetchVideos(nextCursor, { background: true });
+  }, [
+    activeFeedIndex,
+    fetchVideos,
+    hasMore,
+    isFetchingMore,
+    isLoading,
+    isMobile,
+    loadMoreError,
+    nextCursor,
+    visibleVideos.length
+  ]);
+
+  useEffect(() => {
+    if (!isMobile || visibleVideos.length === 0) {
       return;
     }
 
@@ -2731,10 +2751,10 @@ export default function VideoGallery() {
 
       prefetchMobileVideoAt(index);
     }
-  }, [activeFeedIndex, isMobile, prefetchMobileVideoAt, videos.length]);
+  }, [activeFeedIndex, isMobile, prefetchMobileVideoAt, visibleVideos.length]);
 
   useEffect(() => {
-    feedItemRefs.current = feedItemRefs.current.slice(0, videos.length);
+    feedItemRefs.current = feedItemRefs.current.slice(0, visibleVideos.length);
 
     if (!isMobile || !supportsIntersectionObserver) {
       return;
@@ -2763,7 +2783,7 @@ export default function VideoGallery() {
           setActiveFeedIndex(indexValue);
           ensureMobileVideoPlaying(indexValue);
 
-          const remaining = videos.length - indexValue - 1;
+          const remaining = visibleVideos.length - indexValue - 1;
           if (
             hasMore &&
             nextCursor &&
@@ -2798,7 +2818,7 @@ export default function VideoGallery() {
     loadMoreError,
     nextCursor,
     supportsIntersectionObserver,
-    videos
+    visibleVideos
   ]);
 
   useEffect(() => {
@@ -3032,23 +3052,23 @@ export default function VideoGallery() {
   }, [isMobile, selectedVideoId]);
 
   useEffect(() => {
-    if (!commentPanelVideoId || !isAuthenticated) {
+    if (!commentPanelVideoId) {
       return;
     }
 
     void ensureCommentsLoaded(commentPanelVideoId);
-  }, [commentPanelVideoId, ensureCommentsLoaded, isAuthenticated]);
+  }, [commentPanelVideoId, ensureCommentsLoaded]);
 
   useEffect(() => {
-    if (!selectedVideoId || !isAuthenticated) {
+    if (!selectedVideoId) {
       return;
     }
 
     void ensureCommentsLoaded(selectedVideoId);
-  }, [selectedVideoId, ensureCommentsLoaded, isAuthenticated]);
+  }, [selectedVideoId, ensureCommentsLoaded]);
 
   useEffect(() => {
-    if (!isMobile || typeof document === 'undefined') {
+    if (typeof document === 'undefined') {
       return;
     }
 
@@ -3061,7 +3081,7 @@ export default function VideoGallery() {
     return () => {
       document.body.classList.remove('no-scroll');
     };
-  }, [commentPanelVideoId, isMobile]);
+  }, [commentPanelVideoId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -3086,34 +3106,12 @@ export default function VideoGallery() {
     return new Map(videos.map((video) => [video.id, video]));
   }, [videos]);
 
-  const selectedVideo = selectedVideoId
-    ? videoById.get(selectedVideoId) ?? null
-    : null;
-
-  const selectedComments =
-    selectedVideo?.id && commentsMap[selectedVideo.id]
-      ? commentsMap[selectedVideo.id]
-      : createInitialCommentState();
-
-  const selectedInteraction =
-    selectedVideo?.id && interactionMap[selectedVideo.id]
-      ? interactionMap[selectedVideo.id]
-      : DEFAULT_INTERACTION_STATE;
-
   const commentPanelVideo =
     commentPanelVideoId ? videoById.get(commentPanelVideoId) ?? null : null;
   const commentPanelState =
     commentPanelVideoId && commentsMap[commentPanelVideoId]
       ? commentsMap[commentPanelVideoId]
       : createInitialCommentState();
-
-  const openVideo = useCallback(
-    (videoId: string) => {
-      setSelectedVideoId(videoId);
-      void ensureCommentsLoaded(videoId);
-    },
-    [ensureCommentsLoaded]
-  );
 
   const placeholderItems = useMemo(
     () =>
@@ -3133,109 +3131,11 @@ export default function VideoGallery() {
     []
   );
 
-  const showAuthGate = !isAuthenticated;
-  const showSkeleton = isLoading || showAuthGate;
-  const authDialogTitle = isAuthLoading
-    ? 'Loading your access'
-    : 'Sign in to view the gallery';
-  const authDialogCopy = isAuthLoading
-    ? 'Please wait while we verify your account.'
-    : 'Log in or create an account to continue.';
-  const showAuthActions = !isAuthLoading;
-
-  const renderDesktopVideos = () =>
-    videos.map((video) => {
-      const aspectLayout = getAspectRatioLayout(video.aspectRatio);
-      const mediaStyle = getAspectRatioStyle(video.aspectRatio);
-
-      return (
-        <article
-          key={video.id}
-          className={`video-card video-card--${aspectLayout}`}
-          onClick={() => {
-            openVideo(video.id);
-          }}
-          tabIndex={0}
-          role="button"
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              openVideo(video.id);
-            }
-          }}
-        >
-          <div
-            className={`video-card__media video-card__media--${aspectLayout}`}
-            style={mediaStyle}
-          >
-            <video
-              src={video.videoUrl}
-              muted
-              loop
-              playsInline
-              preload="metadata"
-              className="video-card__video"
-              onLoadedMetadata={(event) =>
-                handleDesktopVideoLoadedMetadata(video.id, event)
-              }
-            />
-            <div className="video-card__glow" />
-            <div className="video-card__inline-stats">
-              <span>♥ {video.stats.likes.toLocaleString()}</span>
-              <span>💬 {video.stats.comments.toLocaleString()}</span>
-              <span>⤴ {video.stats.shares.toLocaleString()}</span>
-            </div>
-          </div>
-          <div className="video-card__content">
-            <h3 title={video.title}>{video.title}</h3>
-            <p>{video.description || 'Tap to view the full experience.'}</p>
-            {video.originalPrompt && (
-              <p className="video-card__prompt" title={video.originalPrompt}>
-                {video.originalPrompt}
-              </p>
-            )}
-          </div>
-        </article>
-      );
-    });
-
-  const selectedVideoIndex = selectedVideo
-    ? videos.findIndex((videoItem) => videoItem.id === selectedVideo.id)
-    : -1;
-
-  const hasPreviousVideo = selectedVideoIndex > 0;
-  const hasNextVideo =
-    selectedVideoIndex !== -1 && selectedVideoIndex < videos.length - 1;
-
-  const handleSelectPreviousVideo = () => {
-    if (!hasPreviousVideo) {
-      return;
-    }
-    const previousVideo = videos[selectedVideoIndex - 1];
-    if (previousVideo) {
-      openVideo(previousVideo.id);
-    }
-  };
-
-  const handleSelectNextVideo = () => {
-    if (!hasNextVideo) {
-      return;
-    }
-    const nextVideo = videos[selectedVideoIndex + 1];
-    if (nextVideo) {
-      openVideo(nextVideo.id);
-    }
-  };
+  const showSkeleton = isLoading;
+  const visibleFormatLabel = isMobile ? 'portrait' : 'landscape';
 
   const isVolumeEffectivelyMuted =
     mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
-  const preferredModalVolume = clampVolume(
-    isVolumeEffectivelyMuted && mobileVolume <= MIN_AUDIBLE_VOLUME
-      ? lastAudibleVolumeRef.current > MIN_AUDIBLE_VOLUME
-        ? lastAudibleVolumeRef.current
-        : DEFAULT_MOBILE_VOLUME
-      : mobileVolume
-  );
   const volumePercent = Math.round(mobileVolume * 100);
   const volumeValueText = isVolumeEffectivelyMuted
     ? 'Muted'
@@ -3251,8 +3151,183 @@ export default function VideoGallery() {
     ? `${volumeStyles.slider} ${volumeStyles.sliderVisible}`
     : volumeStyles.slider;
 
+  const desktopVolumePercent = Math.round(desktopVolume * 100);
+  const isDesktopEffectivelyMuted =
+    desktopMuted || desktopVolume <= MIN_AUDIBLE_VOLUME;
+
+  const renderDesktopStage = () => {
+    if (!activeVisibleVideo) {
+      return null;
+    }
+
+    const activeInteraction =
+      interactionMap[activeVisibleVideo.id] ?? DEFAULT_INTERACTION_STATE;
+    const activeCreator = activeVisibleVideo.creatorHandle
+      ? `@${activeVisibleVideo.creatorHandle}${
+          activeVisibleVideo.isBotUser ? ' [bot]' : ''
+        }`
+      : 'Published video';
+    const stageClassName = [
+      'desktop-gallery-layout',
+      desktopControlsVisible || commentPanelVideoId === activeVisibleVideo.id
+        ? 'desktop-gallery-layout--controls-visible'
+        : ''
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    return (
+      <section
+        className={stageClassName}
+        onPointerDown={revealDesktopControls}
+        onPointerMove={revealDesktopControls}
+      >
+        <div className="desktop-gallery-stage">
+          {visibleVideos.map((video, index) => {
+            const isActive = index === activeFeedIndex;
+            const aspectLayout = getAspectRatioLayout(video.aspectRatio);
+
+            return (
+              <article
+                className={`desktop-gallery-card${
+                  isActive ? ' desktop-gallery-card--active' : ''
+                }`}
+                key={video.id}
+              >
+                <video
+                  ref={(element) => {
+                    desktopVideoRefs.current[video.id] = element;
+                  }}
+                  src={video.videoUrl}
+                  className={`gallery-feed-video gallery-feed-video--${aspectLayout}`}
+                  muted={isDesktopEffectivelyMuted}
+                  playsInline
+                  preload={isActive ? 'auto' : 'metadata'}
+                  autoPlay={isActive && isDesktopPlaying}
+                  loop={false}
+                  onEnded={() => selectVisibleVideo(index + 1)}
+                  onLoadedMetadata={(event) =>
+                    handleDesktopVideoLoadedMetadata(video.id, event)
+                  }
+                />
+              </article>
+            );
+          })}
+
+          <div
+            className="desktop-gallery-ui"
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <div className="gallery-feed-meta">
+              <div className="gallery-feed-author">{activeCreator}</div>
+              <h2 title={activeVisibleVideo.title}>{activeVisibleVideo.title}</h2>
+              {activeVisibleVideo.description && (
+                <p>{activeVisibleVideo.description}</p>
+              )}
+            </div>
+
+            <div className="desktop-gallery-actions">
+              <button
+                type="button"
+                className="gallery-icon-button"
+                onClick={() => setIsDesktopPlaying((current) => !current)}
+                title={isDesktopPlaying ? 'Pause' : 'Play'}
+                aria-label={isDesktopPlaying ? 'Pause video' : 'Play video'}
+              >
+                <span aria-hidden="true">{isDesktopPlaying ? 'Ⅱ' : '▶'}</span>
+              </button>
+              <button
+                type="button"
+                className="gallery-icon-button"
+                onClick={() => setDesktopMuted((current) => !current)}
+                title={isDesktopEffectivelyMuted ? 'Unmute' : 'Mute'}
+                aria-label={isDesktopEffectivelyMuted ? 'Unmute' : 'Mute'}
+              >
+                <span aria-hidden="true">
+                  {isDesktopEffectivelyMuted ? '🔇' : '🔊'}
+                </span>
+              </button>
+              <label className="desktop-gallery-volume" title="Volume">
+                <input
+                  aria-label="Volume"
+                  max="100"
+                  min="0"
+                  type="range"
+                  value={
+                    isDesktopEffectivelyMuted ? 0 : desktopVolumePercent
+                  }
+                  onChange={(event) =>
+                    changeDesktopVolume(Number(event.target.value) / 100)
+                  }
+                />
+              </label>
+              <button
+                type="button"
+                className={`gallery-icon-button${
+                  activeVisibleVideo.viewerHasLiked
+                    ? ' gallery-icon-button--active'
+                    : ''
+                }`}
+                onClick={() => toggleLike(activeVisibleVideo.id)}
+                disabled={activeInteraction.liking}
+                title={
+                  activeVisibleVideo.viewerHasLiked ? 'Unlike' : 'Like'
+                }
+                aria-label={
+                  activeVisibleVideo.viewerHasLiked ? 'Unlike' : 'Like'
+                }
+              >
+                <span aria-hidden="true">♥</span>
+                <span>{activeVisibleVideo.stats.likes.toLocaleString()}</span>
+              </button>
+              <button
+                type="button"
+                className="gallery-icon-button"
+                onClick={() => {
+                  setCommentPanelVideoId(activeVisibleVideo.id);
+                  void ensureCommentsLoaded(activeVisibleVideo.id);
+                }}
+                title="Comments"
+                aria-label="Open comments"
+              >
+                <span aria-hidden="true">💬</span>
+                <span>
+                  {activeVisibleVideo.stats.comments.toLocaleString()}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="gallery-icon-button"
+                onClick={() => shareVideo(activeVisibleVideo)}
+                disabled={activeInteraction.sharing}
+                title="Share"
+                aria-label="Share video"
+              >
+                <span aria-hidden="true">⤴</span>
+                <span>{activeVisibleVideo.stats.shares.toLocaleString()}</span>
+              </button>
+            </div>
+
+            <div className="gallery-feed-timeline" aria-label="Gallery position">
+              {visibleVideos.map((video, index) => (
+                <button
+                  aria-label={`Open ${video.title}`}
+                  className={index === activeFeedIndex ? 'active' : ''}
+                  key={video.id}
+                  onClick={() => selectVisibleVideo(index)}
+                  title={video.title}
+                  type="button"
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  };
+
   const renderMobileFeed = () =>
-    videos.map((video, index) => {
+    visibleVideos.map((video, index) => {
       const interaction =
         interactionMap[video.id] ?? DEFAULT_INTERACTION_STATE;
       const isActive = index === activeFeedIndex;
@@ -3276,6 +3351,7 @@ export default function VideoGallery() {
             onLoadedMetadata={(event) =>
               handleMobileVideoLoadedMetadata(video.id, event)
             }
+            onEnded={() => selectVisibleVideo(index + 1)}
             onClick={() => handleMobileVideoClick(index)}
             preload={isActive ? 'auto' : 'metadata'}
           />
@@ -3373,7 +3449,11 @@ export default function VideoGallery() {
 
   return (
     <>
-      <section className={`gallery${isMobile ? ' gallery--mobile' : ''}`}>
+      <section
+        className={`gallery gallery--feed${
+          isMobile ? ' gallery--mobile' : ' gallery--desktop'
+        }`}
+      >
         {showSkeleton && (
           <div className="masonry-grid" aria-hidden="true">
             {placeholderItems}
@@ -3395,61 +3475,27 @@ export default function VideoGallery() {
           </div>
         )}
 
-        {!showSkeleton && !error && videos.length > 0 && (
+        {!showSkeleton && !error && videos.length > 0 && visibleVideos.length === 0 && (
+          <div className="empty-state">
+            <p>No {visibleFormatLabel} videos are available for this view.</p>
+          </div>
+        )}
+
+        {!showSkeleton && !error && visibleVideos.length > 0 && (
           <>
             {isMobile ? (
               <div className="mobile-feed" ref={mobileFeedRef}>
                 {renderMobileFeed()}
               </div>
             ) : (
-              <div className="masonry-grid">{renderDesktopVideos()}</div>
+              renderDesktopStage()
             )}
           </>
         )}
 
-        {showAuthGate && (
-          <div
-            className="gallery__auth-overlay"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="gallery-auth-title"
-          >
-            <div className="gallery__auth-card">
-              <div
-                className="spinner gallery__auth-spinner"
-                aria-hidden="true"
-              />
-              <h2 id="gallery-auth-title" className="gallery__auth-title">
-                {authDialogTitle}
-              </h2>
-              <p className="gallery__auth-copy">{authDialogCopy}</p>
-              {showAuthActions && (
-                <div className="gallery__auth-actions">
-                  <button
-                    type="button"
-                    className="button"
-                    onClick={() => dispatchAuthModal('login')}
-                  >
-                    Log in
-                  </button>
-                  <button
-                    type="button"
-                    className="button button--secondary"
-                    onClick={() => dispatchAuthModal('register')}
-                  >
-                    Create account
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </section>
 
-      <div className="gallery__sentinel" ref={sentinelRef} aria-hidden />
-
-      {isAuthenticated &&
-        (isFetchingMore ||
+      {(isFetchingMore ||
         loadMoreError ||
         (hasMore && !supportsIntersectionObserver)) && (
         <div className="gallery__status">
@@ -3483,28 +3529,7 @@ export default function VideoGallery() {
         </div>
       )}
 
-      {isAuthenticated && selectedVideo && !isMobile && (
-        <VideoModal
-          video={selectedVideo}
-          stats={selectedVideo.stats}
-          viewerHasLiked={selectedVideo.viewerHasLiked}
-          comments={selectedComments}
-          isLiking={selectedInteraction.liking}
-          isSharing={selectedInteraction.sharing}
-          onToggleLike={toggleLike}
-          onShare={shareVideo}
-          onSubmitComment={submitComment}
-          onLoadMoreComments={loadMoreComments}
-          initialVolume={preferredModalVolume}
-          initialMuted={isVolumeEffectivelyMuted}
-          onVolumeChange={handleModalVolumeChange}
-          onPrevious={hasPreviousVideo ? handleSelectPreviousVideo : undefined}
-          onNext={hasNextVideo ? handleSelectNextVideo : undefined}
-          onClose={() => setSelectedVideoId(null)}
-        />
-      )}
-
-      {isAuthenticated && isMobile && commentPanelVideo && (
+      {commentPanelVideo && (
         <CommentDrawer
           video={commentPanelVideo}
           state={commentPanelState}
