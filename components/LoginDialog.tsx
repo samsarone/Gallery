@@ -16,7 +16,7 @@ interface LoginDialogProps {
   open: boolean;
   onClose: () => void;
   onAuthenticated: (user: AuthenticatedUser, token: string) => void;
-  onGoogleLogin?: () => Promise<void> | void;
+  onGoogleLogin?: (options?: { subscribeToWeeklyNewsletter?: boolean }) => Promise<void> | void;
   isGoogleLoading?: boolean;
   externalError?: string | null;
   onResetExternalError?: () => void;
@@ -119,6 +119,7 @@ export default function LoginDialog({
   const [captchaAnswer, setCaptchaAnswer] = useState('');
   const [captchaInput, setCaptchaInput] = useState('');
   const [isAgeConfirmed, setIsAgeConfirmed] = useState(true);
+  const [isNewsletterConfirmed, setIsNewsletterConfirmed] = useState(true);
 
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -138,6 +139,7 @@ export default function LoginDialog({
       setCaptchaAnswer('');
       setCaptchaInput('');
       setIsAgeConfirmed(true);
+      setIsNewsletterConfirmed(true);
       setError(null);
       onResetExternalError?.();
       if (!activeView) {
@@ -165,6 +167,7 @@ export default function LoginDialog({
     if (open && currentView === 'register') {
       generateCaptcha();
       setIsAgeConfirmed(true);
+      setIsNewsletterConfirmed(true);
     }
   }, [open, currentView]);
 
@@ -284,7 +287,12 @@ export default function LoginDialog({
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ username, email, password })
+      body: JSON.stringify({
+        username,
+        email,
+        password,
+        subscribeToWeeklyNewsletter: isNewsletterConfirmed
+      })
     });
 
     if (!response.ok) {
@@ -412,7 +420,11 @@ export default function LoginDialog({
         }
       }
 
-      await onGoogleLogin();
+      await onGoogleLogin(
+        currentView === 'register'
+          ? { subscribeToWeeklyNewsletter: isNewsletterConfirmed }
+          : undefined
+      );
     } catch (googleError) {
       const message =
         googleError instanceof Error
@@ -613,6 +625,15 @@ export default function LoginDialog({
                   onChange={() => setIsAgeConfirmed((prev) => !prev)}
                 />
                 <span>{ageConfirmationLabel}</span>
+              </label>
+
+              <label className="auth-modal__checkbox">
+                <input
+                  type="checkbox"
+                  checked={isNewsletterConfirmed}
+                  onChange={() => setIsNewsletterConfirmed((prev) => !prev)}
+                />
+                <span>Send me the weekly Samsar newsletter.</span>
               </label>
             </>
           )}

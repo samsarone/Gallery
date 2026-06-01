@@ -241,7 +241,7 @@ export default function TopNav() {
     };
   }, []);
 
-  const handleGoogleLogin = useCallback(async () => {
+  const handleGoogleLogin = useCallback(async (options?: { subscribeToWeeklyNewsletter?: boolean }) => {
     if (typeof window === 'undefined') {
       return;
     }
@@ -260,6 +260,12 @@ export default function TopNav() {
         `${apiBase.replace(/\/$/, '')}/users/google_login`
       );
       url.searchParams.set('origin', window.location.origin);
+      if (options?.subscribeToWeeklyNewsletter !== undefined) {
+        url.searchParams.set(
+          'subscribeToWeeklyNewsletter',
+          String(options.subscribeToWeeklyNewsletter)
+        );
+      }
 
       const response = await fetch(url.toString(), {
         method: 'GET',

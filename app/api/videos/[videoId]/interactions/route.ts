@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { fetchPublicRead } from '@/lib/publicReadFetch';
 
 const apiServer = process.env.API_SERVER;
 
@@ -26,23 +27,11 @@ export async function GET(
     request.headers.get('authorization')?.split('Bearer ')[1] ??
     undefined;
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
-  };
-
-  if (authToken) {
-    headers.Authorization = `Bearer ${authToken}`;
-  }
-
   const apiBase = apiServer.replace(/\/$/, '');
   const endpoint = `${apiBase}/publication/${encodeURIComponent(videoId)}/interactions`;
 
   try {
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      headers,
-      cache: 'no-store'
-    });
+    const response = await fetchPublicRead(endpoint, authToken);
 
     if (!response.ok) {
       const message = await response.text();
