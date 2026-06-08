@@ -89,6 +89,10 @@ a {
   gap: 1.5rem;
 }
 
+.top-nav__brand {
+  min-width: 0;
+}
+
 .top-nav__brand a {
   font-size: 0.78rem;
   letter-spacing: 0.28em;
@@ -102,7 +106,8 @@ a {
   display: flex;
   align-items: center;
   gap: 1rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .top-nav__link {
@@ -158,18 +163,41 @@ a {
 }
 
 @media (max-width: 720px) {
+  :root {
+    --top-nav-height: 56px;
+  }
+
   .top-nav__container {
-    flex-wrap: wrap;
-    gap: 0.75rem 1rem;
+    flex-wrap: nowrap;
+    gap: 0.55rem;
+    min-height: 56px;
+    padding: 0.55rem 0.75rem;
   }
 
   .top-nav__actions {
-    width: 100%;
-    justify-content: space-between;
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    width: auto;
+  }
+
+  .top-nav__brand a {
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+  }
+
+  .top-nav__link,
+  .top-nav__button {
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+
+  .top-nav__button {
+    padding: 0.38rem 0.72rem;
   }
 
   .top-nav__user {
-    max-width: 14ch;
+    display: none;
   }
 }
 
@@ -1436,8 +1464,10 @@ a {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
+  max-width: min(100%, 460px);
 }
 
 .gallery-icon-button,
@@ -1452,6 +1482,7 @@ a {
 
 .gallery-icon-button {
   min-width: 42px;
+  flex: 0 0 auto;
   padding: 0 12px;
   display: inline-flex;
   align-items: center;
@@ -1526,7 +1557,7 @@ a {
   width: 100vw;
   height: var(--gallery-viewport-height);
   min-height: var(--gallery-viewport-height);
-  padding: 70px 14px 14px;
+  padding: 68px 14px 14px;
   overflow: auto;
   background: #000;
   scrollbar-width: thin;
@@ -1651,22 +1682,17 @@ a {
 .gallery-mosaic__actions {
   position: absolute;
   top: 8px;
+  left: 8px;
   right: 8px;
-  display: flex;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 5px;
-  opacity: 0;
-  transform: translateY(-4px);
-  transition: opacity 160ms ease, transform 160ms ease;
-}
-
-.gallery-mosaic__item:hover .gallery-mosaic__actions,
-.gallery-mosaic__item:focus-within .gallery-mosaic__actions {
-  opacity: 1;
-  transform: translateY(0);
 }
 
 .gallery-mosaic__action {
-  min-width: 34px;
+  min-width: 0;
+  width: 100%;
   height: 34px;
   display: inline-flex;
   align-items: center;
@@ -1681,6 +1707,12 @@ a {
   font-size: 0.72rem;
   padding: 0 8px;
   backdrop-filter: blur(16px);
+}
+
+.gallery-mosaic__action span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .gallery-mosaic__action:hover:not(:disabled),
@@ -2304,13 +2336,16 @@ a {
 
 @media (max-width: 640px) {
   :root {
-    --top-nav-height: clamp(68px, 14vw, 96px);
+    --top-nav-height: 56px;
+    --mobile-feed-actions-base: 5.5rem;
   }
 
   .gallery-feed-topbar {
-    top: calc(var(--top-nav-height) + 8px);
-    width: calc(100vw - 16px);
-    align-items: flex-start;
+    top: calc(var(--top-nav-height) + 6px);
+    width: calc(100vw - 12px);
+    min-height: 40px;
+    align-items: center;
+    justify-content: center;
   }
 
   .gallery-feed-heading {
@@ -2318,24 +2353,37 @@ a {
   }
 
   .gallery-feed-toolbar {
-    width: 100%;
-    justify-content: flex-start;
+    width: auto;
+    max-width: 100%;
+    justify-content: center;
+    gap: 4px;
+    padding: 4px;
   }
 
   .gallery-toolbar-button {
-    min-width: 54px;
+    min-width: 0;
+    height: 32px;
     flex: 0 0 auto;
+    padding: 0 9px;
+    font-size: 0.76rem;
+  }
+
+  .gallery-mosaic--mobile {
+    gap: 6px;
+    padding: 58px 6px 8px;
   }
 
   .gallery-mosaic--mobile .gallery-mosaic__actions {
-    opacity: 1;
-    transform: none;
+    top: 6px;
+    left: 6px;
+    right: 6px;
+    gap: 4px;
   }
 
   .gallery-mosaic__action {
-    min-width: 30px;
-    height: 30px;
-    padding: 0 6px;
+    height: 28px;
+    padding: 0 4px;
+    font-size: 0.68rem;
   }
 
   .gallery-mosaic__meta {
@@ -2354,7 +2402,14 @@ a {
   }
 
   .mobile-feed__actions {
-    --mobile-feed-actions-base: 6.75rem;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + var(--mobile-feed-actions-base));
+    right: 0.75rem;
+  }
+
+  .mobile-feed__action {
+    width: 46px;
+    height: 46px;
+    min-width: 46px;
   }
 
   .masonry-grid {

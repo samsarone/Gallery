@@ -13,6 +13,7 @@ import {
 import type { CSSProperties } from 'react';
 import type {
   KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent
 } from 'react';
 import type {
@@ -40,6 +41,12 @@ type GalleryViewMode = 'desktop' | 'mobile';
 type GalleryDisplayMode = 'feed' | 'grid';
 type GalleryAspectFilter = 'landscape' | 'portrait';
 
+interface MobileVideoPlayOptions {
+  force?: boolean;
+  muted?: boolean;
+  volume?: number;
+}
+
 type NavigatorWithConnection = Navigator & {
   connection?: {
     saveData?: boolean;
@@ -60,7 +67,7 @@ const DESKTOP_CONTROLS_HIDE_DELAY = 1700;
 const VOLUME_STORAGE_KEY = 'samsar-gallery/mobile-volume';
 const MUTED_STORAGE_KEY = 'samsar-gallery/mobile-muted';
 const AUTOPLAY_STORAGE_KEY = 'samsar-gallery/mobile-autoplay';
-const MOBILE_AUTOPLAY_RAISE_DELAY = 500;
+const DISPLAY_MODE_STORAGE_KEY = 'samsar-gallery/display-mode';
 const DEFAULT_DESKTOP_ASPECT_RATIO = 9 / 16;
 
 const clampVolume = (value: number): number =>
@@ -708,7 +715,7 @@ export default function VideoGallery() {
   const [mobileVolume, setMobileVolume] = useState<number>(
     DEFAULT_MOBILE_VOLUME
   );
-  const [mobileMuted, setMobileMuted] = useState<boolean>(false);
+  const [mobileMuted, setMobileMuted] = useState<boolean>(true);
   const [isMobileAutoplayEnabled, setIsMobileAutoplayEnabled] =
     useState<boolean>(true);
   const [showMobileVolume, setShowMobileVolume] = useState<boolean>(false);
@@ -745,11 +752,6 @@ export default function VideoGallery() {
   const initialMobilePrefetchRequestedRef = useRef<boolean>(false);
   const mobileActiveRafRef = useRef<number | null>(null);
   const mobileAutoplayRaiseTimeoutRef = useRef<number | null>(null);
-  const mobileAutoplayRaiseVideoRef = useRef<HTMLVideoElement | null>(null);
-  const mobileAutoplayRaiseIndexRef = useRef<number | null>(null);
-  const activeFeedIndexRef = useRef<number>(0);
-  const mobileMutedRef = useRef<boolean>(false);
-  const mobileVolumeRef = useRef<number>(DEFAULT_MOBILE_VOLUME);
   const userSelectedAspectRef = useRef<boolean>(false);
   const desktopControlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -823,6 +825,7 @@ export default function VideoGallery() {
     let storedVolumeRaw: string | null = null;
     let storedMutedRaw: string | null = null;
     let storedAutoplayRaw: string | null = null;
+    let storedDisplayModeRaw: string | null = null;
 
     for (const storage of storages) {
       if (storedVolumeRaw === null) {
@@ -844,6 +847,13 @@ export default function VideoGallery() {
           storedAutoplayRaw = storage.getItem(AUTOPLAY_STORAGE_KEY);
         } catch {
           storedAutoplayRaw = null;
+        }
+      }
+      if (storedDisplayModeRaw === null) {
+        try {
+          storedDisplayModeRaw = storage.getItem(DISPLAY_MODE_STORAGE_KEY);
+        } catch {
+          storedDisplayModeRaw = null;
         }
       }
     }
@@ -891,6 +901,10 @@ export default function VideoGallery() {
 
     // Force autoplay on for each fresh load regardless of stored preference.
     setIsMobileAutoplayEnabled(true);
+
+    if (storedDisplayModeRaw === 'feed' || storedDisplayModeRaw === 'grid') {
+      setDisplayMode(storedDisplayModeRaw);
+    }
   }, []);
 
   const promptLogin = useCallback((message: string) => {
@@ -962,6 +976,19 @@ export default function VideoGallery() {
         autoplayBlockedRef.current = false;
       }
 
+      const retryMutedPlay = () => {
+        try {
+          videoElement.muted = true;
+          videoElement.volume = 0;
+          const retryAttempt = videoElement.play();
+          if (retryAttempt && typeof retryAttempt.catch === 'function') {
+            retryAttempt.catch(() => undefined);
+          }
+        } catch {
+          // Ignore retry failures; the next user gesture can try again.
+        }
+      };
+
       try {
         const playAttempt = videoElement.play();
         if (playAttempt && typeof playAttempt.catch === 'function') {
@@ -973,6 +1000,8 @@ export default function VideoGallery() {
             ) {
               if (!shouldForce) {
                 autoplayBlockedRef.current = true;
+              } else {
+                retryMutedPlay();
               }
             }
           });
@@ -985,6 +1014,8 @@ export default function VideoGallery() {
         ) {
           if (!shouldForce) {
             autoplayBlockedRef.current = true;
+          } else {
+            retryMutedPlay();
           }
         }
       }
@@ -1003,77 +1034,10 @@ export default function VideoGallery() {
     }
 
     mobileAutoplayRaiseTimeoutRef.current = null;
-    mobileAutoplayRaiseVideoRef.current = null;
-    mobileAutoplayRaiseIndexRef.current = null;
   }, []);
 
-  const scheduleAutoplayRaise = useCallback(
-    (videoElement: HTMLVideoElement, index: number) => {
-      if (!(videoElement instanceof HTMLVideoElement)) {
-        return;
-      }
-
-      if (typeof window === 'undefined') {
-        if (
-          !mobileMutedRef.current &&
-          mobileVolumeRef.current > MIN_AUDIBLE_VOLUME
-        ) {
-          const desiredVolume = clampVolume(mobileVolumeRef.current);
-          videoElement.volume = desiredVolume;
-          videoElement.muted = false;
-        }
-        return;
-      }
-
-      clearScheduledAutoplayRaise();
-
-      if (
-        mobileMutedRef.current ||
-        mobileVolumeRef.current <= MIN_AUDIBLE_VOLUME
-      ) {
-        return;
-      }
-
-      mobileAutoplayRaiseVideoRef.current = videoElement;
-      mobileAutoplayRaiseIndexRef.current = index;
-
-      mobileAutoplayRaiseTimeoutRef.current = window.setTimeout(() => {
-        mobileAutoplayRaiseTimeoutRef.current = null;
-        mobileAutoplayRaiseVideoRef.current = null;
-        mobileAutoplayRaiseIndexRef.current = null;
-
-        if (activeFeedIndexRef.current !== index) {
-          return;
-        }
-
-        if (
-          mobileMutedRef.current ||
-          mobileVolumeRef.current <= MIN_AUDIBLE_VOLUME
-        ) {
-          return;
-        }
-
-        const desiredVolume = clampVolume(mobileVolumeRef.current);
-
-        try {
-          videoElement.volume = desiredVolume;
-          videoElement.muted = false;
-        } catch {
-          // Ignore setter failures on unsupported browsers.
-        }
-
-        if (videoElement.paused) {
-          void videoElement.play().catch(() => {
-            // Ignore play errors during volume raise.
-          });
-        }
-      }, MOBILE_AUTOPLAY_RAISE_DELAY);
-    },
-    [clearScheduledAutoplayRaise]
-  );
-
   const ensureMobileVideoPlaying = useCallback(
-    (index: number, options?: { force?: boolean }) => {
+    (index: number, options?: MobileVideoPlayOptions) => {
       const container = feedItemRefs.current[index];
       const videoElement =
         container?.querySelector('video') ?? null;
@@ -1086,8 +1050,15 @@ export default function VideoGallery() {
       if (shouldForce) {
         clearScheduledAutoplayRaise();
 
-        const shouldMute = mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
-        const resolvedVolume = shouldMute ? 0 : clampVolume(mobileVolume);
+        const requestedVolume =
+          typeof options?.volume === 'number'
+            ? clampVolume(options.volume)
+            : clampVolume(mobileVolume);
+        const shouldMute =
+          typeof options?.muted === 'boolean'
+            ? options.muted
+            : mobileMuted || requestedVolume <= MIN_AUDIBLE_VOLUME;
+        const resolvedVolume = shouldMute ? 0 : requestedVolume;
 
         try {
           videoElement.volume = resolvedVolume;
@@ -1109,23 +1080,18 @@ export default function VideoGallery() {
         // Ignore setter failures on unsupported browsers.
       }
 
-      const didAttemptPlay = playMobileVideo(videoElement);
-
-      if (didAttemptPlay) {
-        scheduleAutoplayRaise(videoElement, index);
-      }
+      playMobileVideo(videoElement);
     },
     [
       clearScheduledAutoplayRaise,
       mobileMuted,
       mobileVolume,
-      playMobileVideo,
-      scheduleAutoplayRaise
+      playMobileVideo
     ]
   );
 
   const ensureActiveMobileVideoPlaying = useCallback(
-    (options?: { force?: boolean }) => {
+    (options?: MobileVideoPlayOptions) => {
       if (!isMobile) {
         return;
       }
@@ -1561,13 +1527,6 @@ export default function VideoGallery() {
         return;
       }
 
-      try {
-        videoElement.muted = true;
-        videoElement.volume = 0;
-      } catch {
-        // Ignore setter failures on unsupported browsers.
-      }
-
       const container = videoElement.closest('.mobile-feed__item');
       const indexAttribute = container?.getAttribute('data-index');
       const parsedIndex =
@@ -1577,11 +1536,49 @@ export default function VideoGallery() {
         return;
       }
 
+      const isActiveVideo = parsedIndex === activeFeedIndex;
+      const shouldMuteVideo =
+        !isActiveVideo || isMobileAutoplayEnabled
+          ? true
+          : mobileMuted || mobileVolume <= MIN_AUDIBLE_VOLUME;
+      const resolvedVolume = shouldMuteVideo ? 0 : clampVolume(mobileVolume);
+
+      try {
+        videoElement.muted = shouldMuteVideo;
+        videoElement.volume = resolvedVolume;
+      } catch {
+        // Ignore setter failures on unsupported browsers.
+      }
+
       if (parsedIndex === activeFeedIndex) {
         ensureMobileVideoPlaying(parsedIndex);
       }
     },
-    [activeFeedIndex, ensureMobileVideoPlaying, isMobile, updateVideoAspectRatio]
+    [
+      activeFeedIndex,
+      ensureMobileVideoPlaying,
+      isMobile,
+      isMobileAutoplayEnabled,
+      mobileMuted,
+      mobileVolume,
+      updateVideoAspectRatio
+    ]
+  );
+
+  const handleMobileVideoCanPlay = useCallback(
+    (index: number) => {
+      if (!isMobile || !isMobileAutoplayEnabled || index !== activeFeedIndex) {
+        return;
+      }
+
+      ensureMobileVideoPlaying(index);
+    },
+    [
+      activeFeedIndex,
+      ensureMobileVideoPlaying,
+      isMobile,
+      isMobileAutoplayEnabled
+    ]
   );
 
   const handleMobileVideoClick = useCallback(
@@ -1601,7 +1598,7 @@ export default function VideoGallery() {
 
       const ensureAudibleVolume = () => {
         if (!mobileMuted && mobileVolume > MIN_AUDIBLE_VOLUME) {
-          return;
+          return mobileVolume;
         }
 
         const fallback =
@@ -1612,6 +1609,7 @@ export default function VideoGallery() {
           fallback > MIN_AUDIBLE_VOLUME ? fallback : DEFAULT_MOBILE_VOLUME;
 
         commitMobileVolume(target);
+        return target;
       };
 
       if (!isCurrentActive) {
@@ -1623,8 +1621,12 @@ export default function VideoGallery() {
 
       if (videoElement.paused) {
         setIsMobileAutoplayEnabled(true);
-        ensureAudibleVolume();
-        ensureMobileVideoPlaying(index, { force: true });
+        const audibleVolume = ensureAudibleVolume();
+        ensureMobileVideoPlaying(index, {
+          force: true,
+          muted: false,
+          volume: audibleVolume
+        });
         return;
       }
 
@@ -1641,6 +1643,21 @@ export default function VideoGallery() {
       mobileMuted,
       mobileVolume
     ]
+  );
+
+  const handleMobileFeedItemClick = useCallback(
+    (index: number, event: ReactMouseEvent<HTMLDivElement>) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest('a, button, input, [role="slider"]')
+      ) {
+        return;
+      }
+
+      handleMobileVideoClick(index);
+    },
+    [handleMobileVideoClick]
   );
 
   const handleVolumeKeyDown = useCallback(
@@ -2534,6 +2551,49 @@ export default function VideoGallery() {
     setAspectFilter(nextFilter);
   }, []);
 
+  const persistDisplayModePreference = useCallback(
+    (nextMode: GalleryDisplayMode) => {
+      if (typeof window === 'undefined') {
+        return;
+      }
+
+      const storages: Storage[] = [];
+
+      try {
+        if ('localStorage' in window && window.localStorage) {
+          storages.push(window.localStorage);
+        }
+      } catch {
+        // localStorage might be unavailable (e.g., private browsing). Ignore.
+      }
+
+      try {
+        if ('sessionStorage' in window && window.sessionStorage) {
+          storages.push(window.sessionStorage);
+        }
+      } catch {
+        // sessionStorage might be unavailable (e.g., private browsing). Ignore.
+      }
+
+      storages.forEach((storage) => {
+        try {
+          storage.setItem(DISPLAY_MODE_STORAGE_KEY, nextMode);
+        } catch {
+          // Storage writes might fail (e.g., quota exceeded). Ignore.
+        }
+      });
+    },
+    []
+  );
+
+  const selectDisplayMode = useCallback(
+    (nextMode: GalleryDisplayMode) => {
+      setDisplayMode(nextMode);
+      persistDisplayModePreference(nextMode);
+    },
+    [persistDisplayModePreference]
+  );
+
   const selectVisibleVideo = useCallback(
     (index: number, behavior: ScrollBehavior = 'smooth') => {
       if (visibleVideos.length === 0) {
@@ -2702,18 +2762,6 @@ export default function VideoGallery() {
     },
     [clearDesktopControlsTimeout]
   );
-
-  useEffect(() => {
-    activeFeedIndexRef.current = activeFeedIndex;
-  }, [activeFeedIndex]);
-
-  useEffect(() => {
-    mobileMutedRef.current = mobileMuted;
-  }, [mobileMuted]);
-
-  useEffect(() => {
-    mobileVolumeRef.current = mobileVolume;
-  }, [mobileVolume]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -3353,7 +3401,7 @@ export default function VideoGallery() {
           className={`gallery-toolbar-button${
             displayMode === 'feed' ? ' gallery-toolbar-button--active' : ''
           }`}
-          onClick={() => setDisplayMode('feed')}
+          onClick={() => selectDisplayMode('feed')}
           title="Feed view"
         >
           Feed
@@ -3363,7 +3411,7 @@ export default function VideoGallery() {
           className={`gallery-toolbar-button${
             displayMode === 'grid' ? ' gallery-toolbar-button--active' : ''
           }`}
-          onClick={() => setDisplayMode('grid')}
+          onClick={() => selectDisplayMode('grid')}
           title="Grid view"
         >
           Grid
@@ -3666,6 +3714,7 @@ export default function VideoGallery() {
             feedItemRefs.current[index] = element;
           }}
           data-index={index}
+          onClick={(event) => handleMobileFeedItemClick(index, event)}
         >
           <video
             src={video.videoUrl}
@@ -3676,8 +3725,8 @@ export default function VideoGallery() {
             onLoadedMetadata={(event) =>
               handleMobileVideoLoadedMetadata(video.id, event)
             }
+            onCanPlay={() => handleMobileVideoCanPlay(index)}
             onEnded={() => selectVisibleVideo(index + 1)}
-            onClick={() => handleMobileVideoClick(index)}
             preload={isActive ? 'auto' : 'metadata'}
           />
           <div className="mobile-feed__overlay">
