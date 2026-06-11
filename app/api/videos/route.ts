@@ -122,11 +122,22 @@ export async function GET(request: NextRequest) {
             : typeof record.aspect_ratio === 'string' && record.aspect_ratio.trim().length > 0
             ? record.aspect_ratio.trim()
             : undefined;
+        const posterUrl =
+          typeof record.posterUrl === 'string' && record.posterUrl.trim().length > 0
+            ? record.posterUrl.trim()
+            : typeof record.splashImage === 'string' && record.splashImage.trim().length > 0
+            ? record.splashImage.trim()
+            : typeof record.thumbnailUrl === 'string' && record.thumbnailUrl.trim().length > 0
+            ? record.thumbnailUrl.trim()
+            : typeof record.thumbnail === 'string' && record.thumbnail.trim().length > 0
+            ? record.thumbnail.trim()
+            : undefined;
 
         return {
           ...record,
           id: idCandidate,
           videoUrl,
+          posterUrl,
           title:
             typeof record.title === 'string' && record.title.trim().length > 0
               ? record.title.trim()

@@ -36,6 +36,9 @@ interface InteractionState {
   sharing: boolean;
 }
 
+type VideoBooleanMap = Record<string, boolean>;
+type VideoStringMap = Record<string, string>;
+
 type VideoAspectLayout = 'landscape' | 'portrait' | 'square';
 type GalleryViewMode = 'desktop' | 'mobile';
 type GalleryDisplayMode = 'feed' | 'grid';
@@ -64,6 +67,9 @@ const DEFAULT_MOBILE_VOLUME = 0.65;
 const MIN_AUDIBLE_VOLUME = 0.02;
 const MOBILE_VOLUME_HIDE_DELAY = 2200;
 const DESKTOP_CONTROLS_HIDE_DELAY = 1700;
+const MEDIA_HAVE_CURRENT_DATA = 2;
+const MEDIA_HAVE_FUTURE_DATA = 3;
+const MEDIA_NETWORK_EMPTY = 0;
 const VOLUME_STORAGE_KEY = 'samsar-gallery/mobile-volume';
 const MUTED_STORAGE_KEY = 'samsar-gallery/mobile-muted';
 const AUTOPLAY_STORAGE_KEY = 'samsar-gallery/mobile-autoplay';
@@ -223,9 +229,21 @@ const normalizeVideo = (payload: unknown): PublishedVideo | null => {
     aspectRatioCandidate = recordMap.aspect_ratio.trim();
   }
 
+  const posterUrl =
+    typeof record.posterUrl === 'string' && record.posterUrl.trim().length > 0
+      ? record.posterUrl.trim()
+      : typeof recordMap.splashImage === 'string' && recordMap.splashImage.trim().length > 0
+      ? recordMap.splashImage.trim()
+      : typeof recordMap.thumbnailUrl === 'string' && recordMap.thumbnailUrl.trim().length > 0
+      ? recordMap.thumbnailUrl.trim()
+      : typeof recordMap.thumbnail === 'string' && recordMap.thumbnail.trim().length > 0
+      ? recordMap.thumbnail.trim()
+      : undefined;
+
   return {
     id,
     videoUrl,
+    posterUrl,
     title:
       typeof record.title === 'string' && record.title.trim().length > 0
         ? record.title.trim()
@@ -731,6 +749,11 @@ export default function VideoGallery() {
     useState<GalleryAspectFilter>('landscape');
   const [desktopGridAspectRatio, setDesktopGridAspectRatio] =
     useState<number>(16 / 9);
+  const [bufferingVideoIds, setBufferingVideoIds] = useState<VideoBooleanMap>(
+    {}
+  );
+  const [videoPlaybackErrors, setVideoPlaybackErrors] =
+    useState<VideoStringMap>({});
 
   const mobileFeedRef = useRef<HTMLDivElement | null>(null);
   const feedItemRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -936,6 +959,128 @@ export default function VideoGallery() {
     []
   );
 
+  const setVideoBuffering = useCallback((videoId: string, isBuffering: boolean) => {
+    setBufferingVideoIds((previous) => {
+      if (previous[videoId] === isBuffering) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        [videoId]: isBuffering
+      };
+    });
+  }, []);
+
+  const clearVideoPlaybackError = useCallback((videoId: string) => {
+    setVideoPlaybackErrors((previous) => {
+      if (!(videoId in previous)) {
+        return previous;
+      }
+
+      const next = { ...previous };
+      delete next[videoId];
+      return next;
+    });
+  }, []);
+
+  const setVideoPlaybackError = useCallback((videoId: string, message: string) => {
+    setVideoPlaybackErrors((previous) => {
+      if (previous[videoId] === message) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        [videoId]: message
+      };
+    });
+    setVideoBuffering(videoId, false);
+  }, [setVideoBuffering]);
+
+  const markVideoReady = useCallback(
+    (videoId: string) => {
+      setVideoBuffering(videoId, false);
+      clearVideoPlaybackError(videoId);
+    },
+    [clearVideoPlaybackError, setVideoBuffering]
+  );
+
+  const handleVideoLoadedData = useCallback(
+    (videoId: string) => {
+      markVideoReady(videoId);
+    },
+    [markVideoReady]
+  );
+
+  const handleVideoPlaying = useCallback(
+    (videoId: string) => {
+      markVideoReady(videoId);
+    },
+    [markVideoReady]
+  );
+
+  const handleVideoWaiting = useCallback(
+    (videoId: string, event: SyntheticEvent<HTMLVideoElement>) => {
+      if (event.currentTarget.readyState >= MEDIA_HAVE_FUTURE_DATA) {
+        return;
+      }
+
+      setVideoBuffering(videoId, true);
+    },
+    [setVideoBuffering]
+  );
+
+  const handleVideoStalled = useCallback(
+    (videoId: string) => {
+      setVideoBuffering(videoId, true);
+    },
+    [setVideoBuffering]
+  );
+
+  const handleVideoError = useCallback(
+    (videoId: string, event: SyntheticEvent<HTMLVideoElement>) => {
+      const message =
+        event.currentTarget.error?.message ||
+        'This video could not be loaded.';
+      setVideoPlaybackError(videoId, message);
+    },
+    [setVideoPlaybackError]
+  );
+
+  const handleDesktopVideoReady = useCallback(
+    (videoId: string, isActive: boolean, event: SyntheticEvent<HTMLVideoElement>) => {
+      markVideoReady(videoId);
+
+      if (!isActive || isMobile || !isDesktopPlaying || displayMode !== 'feed') {
+        return;
+      }
+
+      void event.currentTarget.play().catch((playError: unknown) => {
+        if (
+          playError instanceof DOMException &&
+          playError.name === 'NotAllowedError'
+        ) {
+          setIsDesktopPlaying(false);
+          return;
+        }
+
+        const message =
+          playError instanceof Error && playError.message
+            ? playError.message
+            : 'This video could not be played.';
+        setVideoPlaybackError(videoId, message);
+      });
+    },
+    [
+      displayMode,
+      isDesktopPlaying,
+      isMobile,
+      markVideoReady,
+      setVideoPlaybackError
+    ]
+  );
+
   const clearVolumeOverlayTimeout = useCallback(() => {
     if (volumeOverlayTimeoutRef.current) {
       clearTimeout(volumeOverlayTimeoutRef.current);
@@ -963,6 +1108,10 @@ export default function VideoGallery() {
       }
 
       const shouldForce = Boolean(options?.force);
+      const videoId = videoElement.dataset.videoId;
+      if (videoId && videoElement.readyState < MEDIA_HAVE_CURRENT_DATA) {
+        setVideoBuffering(videoId, true);
+      }
 
       if (!shouldForce) {
         if (!isMobile || !isMobileAutoplayEnabled) {
@@ -1003,6 +1152,12 @@ export default function VideoGallery() {
               } else {
                 retryMutedPlay();
               }
+              if (videoId && error.name === 'NotSupportedError') {
+                setVideoPlaybackError(
+                  videoId,
+                  'This video format is not supported.'
+                );
+              }
             }
           });
         }
@@ -1017,12 +1172,23 @@ export default function VideoGallery() {
           } else {
             retryMutedPlay();
           }
+          if (videoId && error.name === 'NotSupportedError') {
+            setVideoPlaybackError(
+              videoId,
+              'This video format is not supported.'
+            );
+          }
         }
       }
 
       return true;
     },
-    [isMobile, isMobileAutoplayEnabled]
+    [
+      isMobile,
+      isMobileAutoplayEnabled,
+      setVideoBuffering,
+      setVideoPlaybackError
+    ]
   );
 
   const clearScheduledAutoplayRaise = useCallback(() => {
@@ -1511,8 +1677,11 @@ export default function VideoGallery() {
       }
 
       updateVideoAspectRatio(videoId, nextAspectRatio);
+      if (event.currentTarget.readyState >= MEDIA_HAVE_CURRENT_DATA) {
+        markVideoReady(videoId);
+      }
     },
-    [updateVideoAspectRatio]
+    [markVideoReady, updateVideoAspectRatio]
   );
 
   const handleMobileVideoLoadedMetadata = useCallback(
@@ -1521,6 +1690,10 @@ export default function VideoGallery() {
       const nextAspectRatio = getIntrinsicAspectRatio(videoElement);
       if (nextAspectRatio) {
         updateVideoAspectRatio(videoId, nextAspectRatio);
+      }
+
+      if (videoElement.readyState >= MEDIA_HAVE_CURRENT_DATA) {
+        markVideoReady(videoId);
       }
 
       if (!isMobile) {
@@ -1561,12 +1734,15 @@ export default function VideoGallery() {
       isMobileAutoplayEnabled,
       mobileMuted,
       mobileVolume,
+      markVideoReady,
       updateVideoAspectRatio
     ]
   );
 
   const handleMobileVideoCanPlay = useCallback(
-    (index: number) => {
+    (videoId: string, index: number) => {
+      markVideoReady(videoId);
+
       if (!isMobile || !isMobileAutoplayEnabled || index !== activeFeedIndex) {
         return;
       }
@@ -1577,7 +1753,8 @@ export default function VideoGallery() {
       activeFeedIndex,
       ensureMobileVideoPlaying,
       isMobile,
-      isMobileAutoplayEnabled
+      isMobileAutoplayEnabled,
+      markVideoReady
     ]
   );
 
@@ -2608,6 +2785,9 @@ export default function VideoGallery() {
         return;
       }
 
+      setVideoBuffering(nextVideo.id, true);
+      clearVideoPlaybackError(nextVideo.id);
+
       if (isMobile) {
         setDisplayMode('feed');
         setIsMobileAutoplayEnabled(true);
@@ -2627,7 +2807,13 @@ export default function VideoGallery() {
       setDisplayMode('feed');
       showDesktopControls();
     },
-    [isMobile, showDesktopControls, visibleVideos]
+    [
+      clearVideoPlaybackError,
+      isMobile,
+      setVideoBuffering,
+      showDesktopControls,
+      visibleVideos
+    ]
   );
 
   const changeDesktopVolume = useCallback((nextValue: number) => {
@@ -2737,11 +2923,39 @@ export default function VideoGallery() {
         // Ignore setter failures on unsupported browsers.
       }
 
-      if (isActive && isDesktopPlaying) {
+      if (isActive && isDesktopPlaying && displayMode === 'feed') {
+        element.preload = 'auto';
+        if (element.networkState === MEDIA_NETWORK_EMPTY) {
+          try {
+            element.load();
+          } catch {
+            // Ignore load failures; the media element will surface an error event.
+          }
+        }
+
+        if (element.readyState < MEDIA_HAVE_CURRENT_DATA) {
+          setVideoBuffering(videoId, true);
+        }
+
         if (element.ended) {
           element.currentTime = 0;
         }
-        void element.play().catch(() => undefined);
+        void element.play().catch((playError: unknown) => {
+          if (
+            playError instanceof DOMException &&
+            playError.name === 'NotAllowedError'
+          ) {
+            setIsDesktopPlaying(false);
+            setVideoBuffering(videoId, false);
+            return;
+          }
+
+          const message =
+            playError instanceof Error && playError.message
+              ? playError.message
+              : 'This video could not be played.';
+          setVideoPlaybackError(videoId, message);
+        });
         return;
       }
 
@@ -2749,10 +2963,13 @@ export default function VideoGallery() {
     });
   }, [
     activeVisibleVideo?.id,
+    displayMode,
     desktopMuted,
     desktopVolume,
     isDesktopPlaying,
     isMobile,
+    setVideoBuffering,
+    setVideoPlaybackError,
     visibleVideos.length
   ]);
 
@@ -2963,7 +3180,7 @@ export default function VideoGallery() {
   ]);
 
   useEffect(() => {
-    if (!isMobile || visibleVideos.length === 0) {
+    if (!isMobile || displayMode !== 'feed' || visibleVideos.length === 0) {
       return;
     }
 
@@ -2980,12 +3197,18 @@ export default function VideoGallery() {
 
       prefetchMobileVideoAt(index);
     }
-  }, [activeFeedIndex, isMobile, prefetchMobileVideoAt, visibleVideos.length]);
+  }, [
+    activeFeedIndex,
+    displayMode,
+    isMobile,
+    prefetchMobileVideoAt,
+    visibleVideos.length
+  ]);
 
   useEffect(() => {
     feedItemRefs.current = feedItemRefs.current.slice(0, visibleVideos.length);
 
-    if (!isMobile || !supportsIntersectionObserver) {
+    if (!isMobile || displayMode !== 'feed' || !supportsIntersectionObserver) {
       return;
     }
 
@@ -3041,6 +3264,7 @@ export default function VideoGallery() {
     fetchVideos,
     hasMore,
     ensureMobileVideoPlaying,
+    displayMode,
     isFetchingMore,
     isLoading,
     isMobile,
@@ -3051,7 +3275,7 @@ export default function VideoGallery() {
   ]);
 
   useEffect(() => {
-    if (!isMobile) {
+    if (!isMobile || displayMode !== 'feed') {
       return;
     }
 
@@ -3094,18 +3318,27 @@ export default function VideoGallery() {
       }
     };
   }, [
+    displayMode,
     isMobile,
     resumeAutoplayFromGesture,
     scheduleMobileActiveEvaluation
   ]);
 
   useEffect(() => {
-    if (!isMobile) {
+    if (!isMobile || displayMode !== 'feed') {
       return;
     }
 
     scheduleMobileActiveEvaluation();
-  }, [isMobile, scheduleMobileActiveEvaluation, videos.length]);
+    ensureMobileVideoPlaying(activeFeedIndex);
+  }, [
+    activeFeedIndex,
+    displayMode,
+    ensureMobileVideoPlaying,
+    isMobile,
+    scheduleMobileActiveEvaluation,
+    videos.length
+  ]);
 
   useEffect(
     () => () => {
@@ -3461,6 +3694,11 @@ export default function VideoGallery() {
     ]
       .filter(Boolean)
       .join(' ');
+    const activePlaybackError = videoPlaybackErrors[activeVisibleVideo.id];
+    const activeVideoIsBuffering =
+      isDesktopPlaying &&
+      !activePlaybackError &&
+      (bufferingVideoIds[activeVisibleVideo.id] ?? true);
 
     return (
       <section
@@ -3481,24 +3719,53 @@ export default function VideoGallery() {
                 key={video.id}
               >
                 <video
-                  ref={(element) => {
-                    desktopVideoRefs.current[video.id] = element;
+	                  ref={(element) => {
+	                    desktopVideoRefs.current[video.id] = element;
+	                  }}
+                  data-video-id={video.id}
+	                  src={video.videoUrl}
+                  poster={video.posterUrl}
+	                  className={`gallery-feed-video gallery-feed-video--${aspectLayout}`}
+	                  muted={isDesktopEffectivelyMuted}
+	                  playsInline
+	                  preload={isActive ? 'auto' : 'none'}
+	                  autoPlay={isActive && isDesktopPlaying}
+	                  loop={false}
+	                  onEnded={() => selectVisibleVideo(index + 1)}
+                  onLoadStart={() => {
+                    if (isActive) {
+                      setVideoBuffering(video.id, true);
+                    }
                   }}
-                  src={video.videoUrl}
-                  className={`gallery-feed-video gallery-feed-video--${aspectLayout}`}
-                  muted={isDesktopEffectivelyMuted}
-                  playsInline
-                  preload={isActive ? 'auto' : 'metadata'}
-                  autoPlay={isActive && isDesktopPlaying}
-                  loop={false}
-                  onEnded={() => selectVisibleVideo(index + 1)}
-                  onLoadedMetadata={(event) =>
-                    handleDesktopVideoLoadedMetadata(video.id, event)
+	                  onLoadedMetadata={(event) =>
+	                    handleDesktopVideoLoadedMetadata(video.id, event)
+	                  }
+                  onLoadedData={(event) =>
+                    handleDesktopVideoReady(video.id, isActive, event)
                   }
-                />
-              </article>
-            );
-          })}
+                  onCanPlay={(event) =>
+                    handleDesktopVideoReady(video.id, isActive, event)
+                  }
+                  onPlaying={() => handleVideoPlaying(video.id)}
+                  onWaiting={(event) => handleVideoWaiting(video.id, event)}
+                  onStalled={() => handleVideoStalled(video.id)}
+                  onError={(event) => handleVideoError(video.id, event)}
+	                />
+	              </article>
+	            );
+	          })}
+
+          {activePlaybackError ? (
+            <div className="gallery-video-status gallery-video-status--error" role="alert">
+              <strong>Video unavailable</strong>
+              <span>{activePlaybackError}</span>
+            </div>
+          ) : activeVideoIsBuffering ? (
+            <div className="gallery-video-status" role="status" aria-live="polite">
+              <span className="gallery-video-status__spinner" aria-hidden="true" />
+              <span>Loading video…</span>
+            </div>
+          ) : null}
 
           <div
             className="desktop-gallery-ui"
@@ -3639,15 +3906,16 @@ export default function VideoGallery() {
               onClick={() => selectVisibleVideo(index)}
               title={video.title}
             >
-              <video
-                src={video.videoUrl}
-                muted
-                loop
-                playsInline
-                preload="metadata"
-                className="gallery-mosaic__video"
-                onLoadedMetadata={(event) =>
-                  handleDesktopVideoLoadedMetadata(video.id, event)
+	              <video
+	                src={video.videoUrl}
+                poster={video.posterUrl}
+	                muted
+	                loop
+	                playsInline
+	                preload="none"
+	                className="gallery-mosaic__video"
+	                onLoadedMetadata={(event) =>
+	                  handleDesktopVideoLoadedMetadata(video.id, event)
                 }
               />
               <div className="gallery-mosaic__shade" />
@@ -3705,6 +3973,12 @@ export default function VideoGallery() {
         interactionMap[video.id] ?? DEFAULT_INTERACTION_STATE;
       const isActive = index === activeFeedIndex;
       const shouldMuteVideo = !isActive || isVolumeEffectivelyMuted;
+      const playbackError = videoPlaybackErrors[video.id];
+      const isVideoBuffering =
+        isActive &&
+        isMobileAutoplayEnabled &&
+        !playbackError &&
+        (bufferingVideoIds[video.id] ?? true);
 
       return (
         <div
@@ -3717,18 +3991,41 @@ export default function VideoGallery() {
           onClick={(event) => handleMobileFeedItemClick(index, event)}
         >
           <video
+            data-video-id={video.id}
             src={video.videoUrl}
+            poster={video.posterUrl}
             className="mobile-feed__video"
             loop
             playsInline
             muted={shouldMuteVideo}
+            onLoadStart={() => {
+              if (isActive) {
+                setVideoBuffering(video.id, true);
+              }
+            }}
             onLoadedMetadata={(event) =>
               handleMobileVideoLoadedMetadata(video.id, event)
             }
-            onCanPlay={() => handleMobileVideoCanPlay(index)}
+            onLoadedData={() => handleVideoLoadedData(video.id)}
+            onCanPlay={() => handleMobileVideoCanPlay(video.id, index)}
+            onPlaying={() => handleVideoPlaying(video.id)}
+            onWaiting={(event) => handleVideoWaiting(video.id, event)}
+            onStalled={() => handleVideoStalled(video.id)}
+            onError={(event) => handleVideoError(video.id, event)}
             onEnded={() => selectVisibleVideo(index + 1)}
-            preload={isActive ? 'auto' : 'metadata'}
+            preload={isActive ? 'auto' : 'none'}
           />
+          {playbackError && isActive ? (
+            <div className="mobile-feed__status mobile-feed__status--error" role="alert">
+              <strong>Video unavailable</strong>
+              <span>{playbackError}</span>
+            </div>
+          ) : isVideoBuffering ? (
+            <div className="mobile-feed__status" role="status" aria-live="polite">
+              <span className="gallery-video-status__spinner" aria-hidden="true" />
+              <span>Loading video…</span>
+            </div>
+          ) : null}
           <div className="mobile-feed__overlay">
             {isActive && (
               <div className={volumeStyles.wrapper}>

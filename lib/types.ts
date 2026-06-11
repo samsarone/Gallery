@@ -27,6 +27,7 @@ export interface VideoCommentState {
 export interface PublishedVideo {
   id: string;
   videoUrl: string;
+  posterUrl?: string;
   title: string;
   description: string;
   aspectRatio?: string | null;
