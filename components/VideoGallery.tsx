@@ -11,6 +11,7 @@ import {
   useState
 } from 'react';
 import type { CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
@@ -56,12 +57,13 @@ type NavigatorWithConnection = Navigator & {
   };
 };
 
-const DESKTOP_PAGE_SIZE = 24;
+const DESKTOP_PAGE_SIZE = 12;
 const MOBILE_INITIAL_PAGE_SIZE = 5;
 const MOBILE_PAGE_SIZE = 5;
 const MOBILE_PREFETCH_THRESHOLD = 2;
 const MOBILE_PRELOAD_AHEAD = 2;
 const MOBILE_PRELOAD_BEHIND = 1;
+const GRID_PREVIEW_PRELOAD_LIMIT = 12;
 const MOBILE_BREAKPOINT = 768;
 const DEFAULT_MOBILE_VOLUME = 0.65;
 const MIN_AUDIBLE_VOLUME = 0.02;
@@ -75,6 +77,7 @@ const MUTED_STORAGE_KEY = 'samsar-gallery/mobile-muted';
 const AUTOPLAY_STORAGE_KEY = 'samsar-gallery/mobile-autoplay';
 const DISPLAY_MODE_STORAGE_KEY = 'samsar-gallery/display-mode';
 const DEFAULT_DESKTOP_ASPECT_RATIO = 9 / 16;
+const GALLERY_NAV_CONTROLS_HOST_ID = 'gallery-nav-controls';
 
 const clampVolume = (value: number): number =>
   Math.min(1, Math.max(0, value));
@@ -394,69 +397,6 @@ const getMosaicTileStyle = (video: PublishedVideo): CSSProperties =>
     ['--gallery-tile-aspect-ratio' as '--gallery-tile-aspect-ratio']:
       getAspectRatioCssValue(video.aspectRatio)
   } as CSSProperties);
-
-const getAverageAspectRatio = (
-  videos: PublishedVideo[],
-  aspectFilter: GalleryAspectFilter
-): number => {
-  if (videos.length === 0) {
-    return aspectFilter === 'portrait' ? 9 / 16 : 16 / 9;
-  }
-
-  const totalAspectRatio = videos.reduce(
-    (total, video) => total + parseAspectRatio(video.aspectRatio),
-    0
-  );
-
-  return totalAspectRatio / videos.length;
-};
-
-const getMosaicGridStyle = (
-  viewMode: GalleryViewMode,
-  aspectFilter: GalleryAspectFilter,
-  videos: PublishedVideo[],
-  containerAspectRatio: number
-): CSSProperties | undefined => {
-  if (viewMode !== 'desktop') {
-    return undefined;
-  }
-
-  const safeCount = Math.max(1, videos.length);
-  const targetAspectRatio = getAverageAspectRatio(videos, aspectFilter);
-  const safeContainerAspectRatio = Number.isFinite(containerAspectRatio)
-    ? Math.max(0.4, Math.min(containerAspectRatio, 4))
-    : 16 / 9;
-  const maxColumns = Math.min(
-    safeCount,
-    aspectFilter === 'portrait' ? 6 : 4
-  );
-  let bestColumns = 1;
-  let bestRows = safeCount;
-  let bestScore = Number.POSITIVE_INFINITY;
-
-  for (let candidateColumns = 1; candidateColumns <= maxColumns; candidateColumns += 1) {
-    const candidateRows = Math.ceil(safeCount / candidateColumns);
-    const emptySlots = candidateColumns * candidateRows - safeCount;
-    const cellAspectRatio =
-      (safeContainerAspectRatio * candidateRows) / candidateColumns;
-    const aspectScore = Math.abs(
-      Math.log(cellAspectRatio / targetAspectRatio)
-    );
-    const emptySlotScore = emptySlots / safeCount;
-    const score = aspectScore + emptySlotScore * 0.72;
-
-    if (score < bestScore) {
-      bestScore = score;
-      bestColumns = candidateColumns;
-      bestRows = candidateRows;
-    }
-  }
-
-  return {
-    ['--gallery-grid-columns' as '--gallery-grid-columns']: `${bestColumns}`,
-    ['--gallery-grid-rows' as '--gallery-grid-rows']: `${bestRows}`
-  } as CSSProperties;
-};
 
 const greatestCommonDivisor = (left: number, right: number): number => {
   let currentLeft = Math.abs(Math.trunc(left));
@@ -784,8 +724,8 @@ export default function VideoGallery() {
   const [displayMode, setDisplayMode] = useState<GalleryDisplayMode>('feed');
   const [aspectFilter, setAspectFilter] =
     useState<GalleryAspectFilter>('landscape');
-  const [desktopGridAspectRatio, setDesktopGridAspectRatio] =
-    useState<number>(16 / 9);
+  const [navControlsHost, setNavControlsHost] =
+    useState<HTMLElement | null>(null);
   const [bufferingVideoIds, setBufferingVideoIds] = useState<VideoBooleanMap>(
     {}
   );
@@ -835,25 +775,12 @@ export default function VideoGallery() {
   }, [commentsMap]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof document === 'undefined') {
       return;
     }
 
-    const updateDesktopGridAspectRatio = () => {
-      const topNav = document.querySelector('.top-nav');
-      const topNavHeight =
-        topNav instanceof HTMLElement
-          ? topNav.getBoundingClientRect().height
-          : 0;
-      const galleryHeight = Math.max(1, window.innerHeight - topNavHeight);
-      setDesktopGridAspectRatio(window.innerWidth / galleryHeight);
-    };
-
-    updateDesktopGridAspectRatio();
-    window.addEventListener('resize', updateDesktopGridAspectRatio);
-
-    return () =>
-      window.removeEventListener('resize', updateDesktopGridAspectRatio);
+    const host = document.getElementById(GALLERY_NAV_CONTROLS_HOST_ID);
+    setNavControlsHost(host instanceof HTMLElement ? host : null);
   }, []);
 
   useEffect(() => {
@@ -3230,8 +3157,7 @@ export default function VideoGallery() {
       isLoading ||
       isFetchingMore ||
       loadMoreError ||
-      pendingCursorRef.current ||
-      visibleVideos.length === 0
+      pendingCursorRef.current
     ) {
       return;
     }
@@ -3710,19 +3636,17 @@ export default function VideoGallery() {
   const isDesktopEffectivelyMuted =
     desktopMuted || desktopVolume <= MIN_AUDIBLE_VOLUME;
   const visibleFormatLabel = aspectFilter === 'portrait' ? 'portrait' : 'landscape';
-  const feedModeLabel = displayMode === 'feed' ? 'Feed view' : 'Grid view';
 
   const renderGalleryTopbar = () => (
     <header
       className="gallery-feed-topbar"
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <div className="gallery-feed-heading">
-        <span>T2V Gallery</span>
-        <strong>{feedModeLabel}</strong>
-      </div>
-
-      <div className="gallery-feed-toolbar" aria-label="Gallery view controls">
+      <div
+        className="gallery-feed-toolbar"
+        aria-label="Gallery view controls"
+        role="toolbar"
+      >
         <button
           type="button"
           className={`gallery-toolbar-button${
@@ -3730,6 +3654,7 @@ export default function VideoGallery() {
           }`}
           onClick={() => selectDisplayMode('feed')}
           title="Feed view"
+          aria-pressed={displayMode === 'feed'}
         >
           Feed
         </button>
@@ -3740,6 +3665,7 @@ export default function VideoGallery() {
           }`}
           onClick={() => selectDisplayMode('grid')}
           title="Grid view"
+          aria-pressed={displayMode === 'grid'}
         >
           Grid
         </button>
@@ -3751,6 +3677,7 @@ export default function VideoGallery() {
           }`}
           onClick={() => selectAspectFilter('landscape')}
           title="Show landscape videos"
+          aria-pressed={aspectFilter === 'landscape'}
         >
           16:9
         </button>
@@ -3761,6 +3688,7 @@ export default function VideoGallery() {
           }`}
           onClick={() => selectAspectFilter('portrait')}
           title="Show portrait videos"
+          aria-pressed={aspectFilter === 'portrait'}
         >
           9:16
         </button>
@@ -3977,16 +3905,11 @@ export default function VideoGallery() {
     <section
       className={`gallery-mosaic gallery-mosaic--${galleryViewMode} gallery-mosaic--${aspectFilter}`}
       aria-label={`${visibleFormatLabel} video grid`}
-      style={getMosaicGridStyle(
-        galleryViewMode,
-        aspectFilter,
-        visibleVideos,
-        desktopGridAspectRatio
-      )}
     >
       {visibleVideos.map((video, index) => {
         const aspectLayout = getAspectRatioLayout(video.aspectRatio);
         const interaction = interactionMap[video.id] ?? DEFAULT_INTERACTION_STATE;
+        const shouldPreloadGridPreview = index < GRID_PREVIEW_PRELOAD_LIMIT;
 
         return (
           <article
@@ -4006,11 +3929,12 @@ export default function VideoGallery() {
 	                muted
 	                loop
 	                playsInline
-	                preload="none"
+	                preload={shouldPreloadGridPreview ? 'metadata' : 'none'}
 	                className="gallery-mosaic__video"
 	                onLoadedMetadata={(event) =>
 	                  handleDesktopVideoLoadedMetadata(video.id, event)
                 }
+                onLoadedData={() => handleVideoLoadedData(video.id)}
               />
               <div className="gallery-mosaic__shade" />
               <div className="gallery-mosaic__meta">
@@ -4214,13 +4138,15 @@ export default function VideoGallery() {
 
   return (
     <>
+      {navControlsHost
+        ? createPortal(renderGalleryTopbar(), navControlsHost)
+        : null}
+
       <section
         className={`gallery gallery--feed${
           isMobile ? ' gallery--mobile' : ' gallery--desktop'
         }`}
       >
-        {renderGalleryTopbar()}
-
         {showSkeleton && (
           <div className="masonry-grid" aria-hidden="true">
             {placeholderItems}

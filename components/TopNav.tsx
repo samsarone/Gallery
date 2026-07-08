@@ -330,6 +330,11 @@ export default function TopNav() {
             <Link href="/">T2V Gallery</Link>
           </div>
 
+          <div
+            className="top-nav__gallery-controls"
+            id="gallery-nav-controls"
+          />
+
           <div className="top-nav__actions">
             <a
               href="https://app.samsar.one"
