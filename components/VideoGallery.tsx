@@ -384,6 +384,11 @@ const isVisibleInGalleryMode = (
     : aspectLayout !== 'portrait';
 };
 
+const getAspectFilterForVideo = (video: PublishedVideo): GalleryAspectFilter =>
+  getAspectRatioLayout(video.aspectRatio) === 'portrait'
+    ? 'portrait'
+    : 'landscape';
+
 const getMosaicTileStyle = (video: PublishedVideo): CSSProperties =>
   ({
     ['--gallery-tile-aspect-ratio' as '--gallery-tile-aspect-ratio']:
@@ -527,6 +532,38 @@ const getShareUrl = (video: PublishedVideo) => {
   }
 
   return video.videoUrl || '';
+};
+
+const unwrapSingleVideoPayload = (payload: unknown): unknown => {
+  let candidate = payload;
+  const wrapperKeys = [
+    'publication',
+    'video',
+    'item',
+    'data',
+    'result',
+    'document'
+  ];
+
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (Array.isArray(candidate)) {
+      return candidate[0] ?? null;
+    }
+
+    if (!candidate || typeof candidate !== 'object') {
+      return candidate;
+    }
+
+    const record = candidate as Record<string, unknown>;
+    const wrapperKey = wrapperKeys.find((key) => key in record);
+    if (typeof record.videoUrl === 'string' || !wrapperKey) {
+      return candidate;
+    }
+
+    candidate = record[wrapperKey];
+  }
+
+  return candidate;
 };
 
 interface CommentDrawerProps {
@@ -776,6 +813,7 @@ export default function VideoGallery() {
   const mobileActiveRafRef = useRef<number | null>(null);
   const mobileAutoplayRaiseTimeoutRef = useRef<number | null>(null);
   const userSelectedAspectRef = useRef<boolean>(false);
+  const hasAlignedInitialVideoAspectRef = useRef<boolean>(false);
   const desktopControlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -2309,12 +2347,7 @@ export default function VideoGallery() {
         }
 
         const payload = await response.json();
-        const candidate =
-          payload && typeof payload === 'object' && 'publication' in payload
-            ? (payload as { publication: unknown }).publication
-            : payload;
-
-        const normalized = normalizeVideo(candidate);
+        const normalized = normalizeVideo(unwrapSingleVideoPayload(payload));
         if (!normalized) {
           throw new Error('Video not found.');
         }
@@ -2323,6 +2356,22 @@ export default function VideoGallery() {
           const filtered = previous.filter((video) => video.id !== normalized.id);
           return [normalized, ...filtered];
         });
+
+        if (
+          typeof normalized.aspectRatio === 'string' &&
+          normalized.aspectRatio.trim().length > 0
+        ) {
+          setAspectFilter(getAspectFilterForVideo(normalized));
+        }
+
+        if (typeof window !== 'undefined') {
+          const currentlyMobile = window.innerWidth <= MOBILE_BREAKPOINT;
+          if (currentlyMobile) {
+            setPendingMobileVideoId(normalized.id);
+          } else {
+            setSelectedVideoId(normalized.id);
+          }
+        }
 
         setError(null);
         void ensureCommentsLoaded(videoId);
@@ -2662,6 +2711,11 @@ export default function VideoGallery() {
   );
 
   const handleRetryInitial = () => {
+    if (initialVideoId) {
+      void fetchSingleVideo(initialVideoId);
+      return;
+    }
+
     fetchVideos();
   };
 
@@ -2858,6 +2912,27 @@ export default function VideoGallery() {
 
     setAspectFilter(isMobile ? 'portrait' : 'landscape');
   }, [isMobile]);
+
+  useEffect(() => {
+    if (!initialVideoId || hasAlignedInitialVideoAspectRef.current) {
+      return;
+    }
+
+    const linkedVideo = videos.find((video) => video.id === initialVideoId);
+    if (
+      !linkedVideo ||
+      typeof linkedVideo.aspectRatio !== 'string' ||
+      linkedVideo.aspectRatio.trim().length === 0
+    ) {
+      return;
+    }
+
+    hasAlignedInitialVideoAspectRef.current = true;
+    const nextFilter = getAspectFilterForVideo(linkedVideo);
+    setAspectFilter((currentFilter) =>
+      currentFilter === nextFilter ? currentFilter : nextFilter
+    );
+  }, [initialVideoId, videos]);
 
   useEffect(() => {
     setActiveFeedIndex((currentIndex) => {
@@ -3550,8 +3625,18 @@ export default function VideoGallery() {
       return;
     }
 
+    if (initialVideoId === undefined) {
+      return;
+    }
+
     const activeVideoId =
-      selectedVideoId ?? (isMobile ? commentPanelVideoId : null) ?? null;
+      selectedVideoId ??
+      (isMobile
+        ? commentPanelVideoId ??
+          pendingMobileVideoId ??
+          (initialVideoId ? activeVisibleVideo?.id ?? null : null)
+        : null) ??
+      (initialVideoId && (isLoading || error) ? initialVideoId : null);
 
     const url = new URL(window.location.href);
     if (activeVideoId) {
@@ -3562,7 +3647,16 @@ export default function VideoGallery() {
 
     const updated = `${url.pathname}${url.search}${url.hash}`;
     window.history.replaceState({}, '', updated);
-  }, [commentPanelVideoId, isMobile, selectedVideoId]);
+  }, [
+    activeVisibleVideo?.id,
+    commentPanelVideoId,
+    error,
+    initialVideoId,
+    isLoading,
+    isMobile,
+    pendingMobileVideoId,
+    selectedVideoId
+  ]);
 
   const videoById = useMemo(() => {
     return new Map(videos.map((video) => [video.id, video]));
