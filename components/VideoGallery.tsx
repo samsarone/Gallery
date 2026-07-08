@@ -57,13 +57,15 @@ type NavigatorWithConnection = Navigator & {
   };
 };
 
-const DESKTOP_PAGE_SIZE = 12;
+const DESKTOP_PAGE_SIZE = 10;
 const MOBILE_INITIAL_PAGE_SIZE = 5;
 const MOBILE_PAGE_SIZE = 5;
 const MOBILE_PREFETCH_THRESHOLD = 2;
 const MOBILE_PRELOAD_AHEAD = 2;
 const MOBILE_PRELOAD_BEHIND = 1;
-const GRID_PREVIEW_PRELOAD_LIMIT = 12;
+const GRID_INITIAL_VISIBLE_COUNT = 10;
+const GRID_VISIBLE_INCREMENT = 10;
+const GRID_SCROLL_PREFETCH_PX = 420;
 const MOBILE_BREAKPOINT = 768;
 const DEFAULT_MOBILE_VOLUME = 0.65;
 const MIN_AUDIBLE_VOLUME = 0.02;
@@ -724,6 +726,9 @@ export default function VideoGallery() {
   const [displayMode, setDisplayMode] = useState<GalleryDisplayMode>('feed');
   const [aspectFilter, setAspectFilter] =
     useState<GalleryAspectFilter>('landscape');
+  const [gridVisibleLimit, setGridVisibleLimit] = useState<number>(
+    GRID_INITIAL_VISIBLE_COUNT
+  );
   const [navControlsHost, setNavControlsHost] =
     useState<HTMLElement | null>(null);
   const [bufferingVideoIds, setBufferingVideoIds] = useState<VideoBooleanMap>(
@@ -733,6 +738,7 @@ export default function VideoGallery() {
     useState<VideoStringMap>({});
 
   const mobileFeedRef = useRef<HTMLDivElement | null>(null);
+  const gridMosaicRef = useRef<HTMLElement | null>(null);
   const feedItemRefs = useRef<(HTMLDivElement | null)[]>([]);
   const desktopVideoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const isMountedRef = useRef<boolean>(false);
@@ -767,12 +773,20 @@ export default function VideoGallery() {
       ),
     [aspectFilter, videos]
   );
+  const gridPreviewVideos = useMemo(
+    () => visibleVideos.slice(0, gridVisibleLimit),
+    [gridVisibleLimit, visibleVideos]
+  );
   const activeVisibleVideo =
     visibleVideos[activeFeedIndex] ?? visibleVideos[0] ?? null;
 
   useEffect(() => {
     commentsMapRef.current = commentsMap;
   }, [commentsMap]);
+
+  useEffect(() => {
+    setGridVisibleLimit(GRID_INITIAL_VISIBLE_COUNT);
+  }, [aspectFilter, displayMode, isMobile]);
 
   useEffect(() => {
     if (typeof document === 'undefined') {
@@ -2669,6 +2683,42 @@ export default function VideoGallery() {
     fetchVideos(cursor);
   };
 
+  const requestMoreGridPreviews = useCallback(
+    (options?: { background?: boolean }) => {
+      const hasHiddenLoadedVideos = gridVisibleLimit < visibleVideos.length;
+      if (hasHiddenLoadedVideos) {
+        setGridVisibleLimit((current) =>
+          Math.min(current + GRID_VISIBLE_INCREMENT, visibleVideos.length)
+        );
+        return;
+      }
+
+      if (
+        !hasMore ||
+        !nextCursor ||
+        isLoading ||
+        isFetchingMore ||
+        loadMoreError ||
+        pendingCursorRef.current
+      ) {
+        return;
+      }
+
+      setGridVisibleLimit((current) => current + GRID_VISIBLE_INCREMENT);
+      fetchVideos(nextCursor, { background: options?.background ?? true });
+    },
+    [
+      fetchVideos,
+      gridVisibleLimit,
+      hasMore,
+      isFetchingMore,
+      isLoading,
+      loadMoreError,
+      nextCursor,
+      visibleVideos.length
+    ]
+  );
+
   const clearDesktopControlsTimeout = useCallback(() => {
     if (desktopControlsTimeoutRef.current) {
       clearTimeout(desktopControlsTimeoutRef.current);
@@ -3130,15 +3180,19 @@ export default function VideoGallery() {
       return;
     }
 
+    const shouldFillGridPreviewWindow =
+      displayMode === 'grid' && visibleVideos.length < gridVisibleLimit;
     const remaining = visibleVideos.length - 1 - activeFeedIndex;
-    if (remaining > MOBILE_PREFETCH_THRESHOLD) {
+    if (!shouldFillGridPreviewWindow && remaining > MOBILE_PREFETCH_THRESHOLD) {
       return;
     }
 
     fetchVideos(nextCursor, { background: true });
   }, [
     activeFeedIndex,
+    displayMode,
     fetchVideos,
+    gridVisibleLimit,
     hasMore,
     isFetchingMore,
     isLoading,
@@ -3273,6 +3327,37 @@ export default function VideoGallery() {
     nextCursor,
     supportsIntersectionObserver,
     visibleVideos
+  ]);
+
+  useEffect(() => {
+    if (displayMode !== 'grid') {
+      return;
+    }
+
+    const element = gridMosaicRef.current;
+    if (!element) {
+      return;
+    }
+
+    const handleScroll = () => {
+      const distanceFromBottom =
+        element.scrollHeight - element.scrollTop - element.clientHeight;
+      if (distanceFromBottom > GRID_SCROLL_PREFETCH_PX) {
+        return;
+      }
+
+      requestMoreGridPreviews({ background: true });
+    };
+
+    element.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      element.removeEventListener('scroll', handleScroll);
+    };
+  }, [
+    displayMode,
+    gridPreviewVideos.length,
+    requestMoreGridPreviews,
+    visibleVideos.length
   ]);
 
   useEffect(() => {
@@ -3905,11 +3990,11 @@ export default function VideoGallery() {
     <section
       className={`gallery-mosaic gallery-mosaic--${galleryViewMode} gallery-mosaic--${aspectFilter}`}
       aria-label={`${visibleFormatLabel} video grid`}
+      ref={gridMosaicRef}
     >
-      {visibleVideos.map((video, index) => {
+      {gridPreviewVideos.map((video, index) => {
         const aspectLayout = getAspectRatioLayout(video.aspectRatio);
         const interaction = interactionMap[video.id] ?? DEFAULT_INTERACTION_STATE;
-        const shouldPreloadGridPreview = index < GRID_PREVIEW_PRELOAD_LIMIT;
 
         return (
           <article
@@ -3929,7 +4014,7 @@ export default function VideoGallery() {
 	                muted
 	                loop
 	                playsInline
-	                preload={shouldPreloadGridPreview ? 'metadata' : 'none'}
+	                preload="metadata"
 	                className="gallery-mosaic__video"
 	                onLoadedMetadata={(event) =>
 	                  handleDesktopVideoLoadedMetadata(video.id, event)
@@ -3982,6 +4067,21 @@ export default function VideoGallery() {
           </article>
         );
       })}
+
+      {(gridPreviewVideos.length < visibleVideos.length || hasMore) && (
+        <button
+          type="button"
+          className="gallery-mosaic__load-more"
+          onClick={() => requestMoreGridPreviews({ background: false })}
+          disabled={
+            isFetchingMore && gridPreviewVideos.length >= visibleVideos.length
+          }
+        >
+          {isFetchingMore && gridPreviewVideos.length >= visibleVideos.length
+            ? 'Loading…'
+            : 'More'}
+        </button>
+      )}
     </section>
   );
 
