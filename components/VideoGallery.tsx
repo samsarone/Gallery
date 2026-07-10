@@ -37,6 +37,7 @@ const requestStaleEmbeddingRefresh = () => {
 type IconName =
   | 'arrow'
   | 'close'
+  | 'menu'
   | 'heart'
   | 'message'
   | 'mute'
@@ -50,6 +51,7 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
     arrow: <path d="m9 18 6-6-6-6" />,
     close: <><path d="m18 6-12 12" /><path d="m6 6 12 12" /></>,
+    menu: <><path d="M4 7h16" /><path d="M4 12h16" /><path d="M4 17h16" /></>,
     heart: <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z" />,
     message: <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" />,
     mute: <><path d="M11 5 6 9H2v6h4l5 4Z" /><path d="m22 9-6 6" /><path d="m16 9 6 6" /></>,
@@ -110,6 +112,8 @@ const sortByPopularity = (collection: PublishedVideo[]) =>
 
 const GENERIC_CATEGORY_TAGS = new Set(['ai', 'samsar', 'video', 'videos']);
 
+const normalizeCategoryKey = (tag: string) => tag.trim().toLowerCase();
+
 const formatCategoryName = (tag: string) =>
   tag
     .replace(/[-_]+/g, ' ')
@@ -121,6 +125,12 @@ const formatCategoryName = (tag: string) =>
         : `${word.charAt(0).toUpperCase()}${word.slice(1)}`
     )
     .join(' ');
+
+type GalleryCategory = {
+  key: string;
+  name: string;
+  count: number;
+};
 
 function PreviewVideo({
   video,
@@ -487,6 +497,8 @@ export default function VideoGallery({
   const [activeMobileId, setActiveMobileId] = useState<string | null>(null);
   const [query, setQuery] = useState(initialQuery);
   const [searchResults, setSearchResults] = useState<PublishedVideo[] | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [mobileCategoryOpen, setMobileCategoryOpen] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [homeRecommendations, setHomeRecommendations] = useState<PublishedVideo[]>([]);
   const [selectedRecommendations, setSelectedRecommendations] = useState<PublishedVideo[]>([]);
@@ -570,6 +582,32 @@ export default function VideoGallery({
     setQuery(initialQuery);
     setSearchResults(null);
   }, [initialQuery]);
+
+  useEffect(() => {
+    const syncCategoryFromUrl = () => {
+      const category = new URLSearchParams(window.location.search).get('category');
+      setSelectedCategory(category?.trim().toLowerCase() || null);
+    };
+
+    syncCategoryFromUrl();
+    window.addEventListener('popstate', syncCategoryFromUrl);
+    return () => window.removeEventListener('popstate', syncCategoryFromUrl);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileCategoryOpen) return;
+    document.body.classList.add('no-scroll');
+    return () => document.body.classList.remove('no-scroll');
+  }, [mobileCategoryOpen]);
+
+  useEffect(() => {
+    if (!mobileCategoryOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileCategoryOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [mobileCategoryOpen]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(
@@ -692,6 +730,55 @@ export default function VideoGallery({
       .map((video) => currentById.get(video.id) ?? video);
     return mergeUniqueVideos(recommendations, sortByPopularity(searchedVideos));
   }, [homeRecommendations, query, searchedVideos, unavailableVideoIds, videos]);
+  const categoryItems = useMemo<GalleryCategory[]>(() => {
+    const counts = new Map<string, number>();
+
+    videos
+      .filter((video) => !unavailableVideoIds.has(video.id))
+      .forEach((video) => {
+        const tags = new Set(
+          (video.tags ?? [])
+            .map(normalizeCategoryKey)
+            .filter(
+              (tag) =>
+                tag.length > 1 &&
+                tag.length <= 48 &&
+                !GENERIC_CATEGORY_TAGS.has(tag)
+            )
+        );
+
+        tags.forEach((tag) => counts.set(tag, (counts.get(tag) ?? 0) + 1));
+      });
+
+    return Array.from(counts.entries())
+      .sort(([leftKey, leftCount], [rightKey, rightCount]) =>
+        rightCount - leftCount || leftKey.localeCompare(rightKey)
+      )
+      .slice(0, 10)
+      .map(([key, count]) => ({ key, name: formatCategoryName(key), count }));
+  }, [unavailableVideoIds, videos]);
+  const selectedCategoryItem = useMemo(
+    () => categoryItems.find((category) => category.key === selectedCategory) ?? null,
+    [categoryItems, selectedCategory]
+  );
+  const categoryResults = useMemo(() => {
+    if (!selectedCategoryItem) return [];
+    return sortByPopularity(
+      searchedVideos.filter((video) =>
+        (video.tags ?? []).some(
+          (tag) => normalizeCategoryKey(tag) === selectedCategoryItem.key
+        )
+      )
+    );
+  }, [searchedVideos, selectedCategoryItem]);
+  const categoryLandscapeResults = useMemo(
+    () => categoryResults.filter((video) => !isPortraitVideo(video)),
+    [categoryResults]
+  );
+  const categoryPortraitResults = useMemo(
+    () => categoryResults.filter(isPortraitVideo),
+    [categoryResults]
+  );
   const portraitVideos = useMemo(
     () => rankedVideos.filter(isPortraitVideo),
     [rankedVideos]
@@ -1059,7 +1146,10 @@ export default function VideoGallery({
 
   const startMobilePlayback = useCallback((video: PublishedVideo) => {
     const mode: MobilePlaybackMode = isPortraitVideo(video) ? 'portrait' : 'landscape';
-    const candidates = mode === 'portrait' ? portraitVideos : landscapeVideos;
+    const categoryCandidates = selectedCategoryItem
+      ? categoryResults.filter((candidate) => isPortraitVideo(candidate) === (mode === 'portrait'))
+      : null;
+    const candidates = categoryCandidates ?? (mode === 'portrait' ? portraitVideos : landscapeVideos);
     mobileViewStartedRef.current.clear();
     mobileProgressReportedRef.current.clear();
     setMobileQueue(mergeUniqueVideos([video], candidates));
@@ -1068,7 +1158,7 @@ export default function VideoGallery({
     const url = new URL(window.location.href);
     url.searchParams.set('videoId', video.id);
     window.history.replaceState({}, '', url);
-  }, [landscapeVideos, portraitVideos]);
+  }, [categoryResults, landscapeVideos, portraitVideos, selectedCategoryItem]);
 
   const closeMobilePlayback = useCallback(() => {
     Object.values(mobileVideoRefs.current).forEach((element) => element?.pause());
@@ -1092,6 +1182,20 @@ export default function VideoGallery({
     const url = new URL(window.location.href);
     url.searchParams.delete('videoId');
     window.history.replaceState({}, '', url);
+  }, []);
+
+  const selectCategory = useCallback((category: string | null) => {
+    setSelectedCategory(category);
+    setMobileCategoryOpen(false);
+    setSelectedVideo(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('videoId');
+    if (category) {
+      url.searchParams.set('category', category);
+    } else {
+      url.searchParams.delete('category');
+    }
+    window.history.pushState({}, '', url);
   }, []);
 
   const selectedCurrent = selectedVideo
@@ -1189,14 +1293,126 @@ export default function VideoGallery({
       )}
 
       {!searchMode && !isMobile && <div className="desktop-library">
-        {searchedVideos.length === 0 ? (
-          <div className="library-state library-state--inline">
-            <h2>No videos match “{query}”</h2>
-            <p>Try a creator name, title, or another keyword.</p>
-            <button onClick={() => setQuery('')} type="button">Clear search</button>
-          </div>
-        ) : (
-          <>
+        <div className="desktop-library-layout">
+          <aside className="desktop-category-nav" aria-label="Browse video categories">
+            <div className="desktop-category-nav__intro">
+              <span>Browse</span>
+              <p>Explore the library</p>
+            </div>
+            <button
+              className={`desktop-category-nav__item${selectedCategoryItem ? '' : ' is-active'}`}
+              onClick={() => selectCategory(null)}
+              type="button"
+            >
+              <span>All videos</span>
+              <small>{formatCompactNumber(videos.length)}</small>
+            </button>
+            <div className="desktop-category-nav__label">Popular categories</div>
+            <div className="desktop-category-nav__list">
+              {categoryItems.map((category) => (
+                <button
+                  className={`desktop-category-nav__item${selectedCategoryItem?.key === category.key ? ' is-active' : ''}`}
+                  key={category.key}
+                  onClick={() => selectCategory(category.key)}
+                  type="button"
+                >
+                  <span>{category.name}</span>
+                  <small>{formatCompactNumber(category.count)}</small>
+                </button>
+              ))}
+            </div>
+            {categoryItems.length === 0 && (
+              <p className="desktop-category-nav__empty">Categories will appear as videos are published.</p>
+            )}
+            <p className="desktop-category-nav__note">Sorted by the number of videos in each tag.</p>
+          </aside>
+
+          <div className="desktop-library__main">
+            {selectedCategoryItem ? (
+              <section className="category-results" aria-labelledby="category-results-title">
+                <header className="category-results__header">
+                  <div>
+                    <span className="category-results__eyebrow">Category</span>
+                    <h1 id="category-results-title">{selectedCategoryItem.name}</h1>
+                    <p>{formatCompactNumber(selectedCategoryItem.count)} videos in this collection</p>
+                  </div>
+                  <button className="category-results__back" onClick={() => selectCategory(null)} type="button">
+                    All videos <Icon name="arrow" size={16} />
+                  </button>
+                </header>
+
+                {categoryResults.length === 0 ? (
+                  <div className="library-state library-state--inline">
+                    <h2>No videos in this category yet.</h2>
+                    <p>Try another popular category.</p>
+                  </div>
+                ) : (
+                  <>
+                    {categoryLandscapeResults.length > 0 && (
+                      <section className="category-results__group" aria-labelledby="category-landscape-title">
+                        <div className="section-heading">
+                          <h2 id="category-landscape-title">Landscape</h2>
+                          <span>{formatCompactNumber(categoryLandscapeResults.length)} videos</span>
+                        </div>
+                        <div className="landscape-grid category-results__landscape-grid">
+                          {categoryLandscapeResults.map((video) => (
+                            <LandscapeCard
+                              key={video.id}
+                              liking={likingIds.has(video.id)}
+                              onLike={toggleLike}
+                              onMetadata={updateInferredAspectRatio}
+                              onOpen={openVideo}
+                              onShare={shareVideo}
+                              onUnavailable={markVideoUnavailable}
+                              video={video}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    )}
+
+                    {categoryPortraitResults.length > 0 && (
+                      <section className="category-results__group" aria-labelledby="category-portrait-title">
+                        <div className="section-heading">
+                          <h2 id="category-portrait-title">Portrait</h2>
+                          <span>{formatCompactNumber(categoryPortraitResults.length)} videos</span>
+                        </div>
+                        <div className="featured-portrait-grid category-results__portrait-grid">
+                          {categoryPortraitResults.map((video, index) => (
+                            <PortraitFeatureCard
+                              key={video.id}
+                              onMetadata={updateInferredAspectRatio}
+                              onOpen={openVideo}
+                              onUnavailable={markVideoUnavailable}
+                              rank={index + 1}
+                              video={video}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    )}
+
+                    {hasMore && (
+                      <button
+                        className="load-more-button category-results__load-more"
+                        disabled={loadingMore}
+                        onClick={() => void loadVideos(nextCursor)}
+                        type="button"
+                      >
+                        {loadingMore ? 'Loading…' : 'Show more'} <Icon name="arrow" size={17} />
+                      </button>
+                    )}
+                  </>
+                )}
+              </section>
+            ) : searchedVideos.length === 0 ? (
+              <div className="library-state library-state--inline">
+                <h2>No videos match “{query}”</h2>
+                <p>Try a creator name, title, or another keyword.</p>
+                <button onClick={() => setQuery('')} type="button">Clear search</button>
+              </div>
+            ) : (
+              <>
             {featuredLandscapeVideos.length > 0 && (
               <section className="featured-section" aria-label="Featured videos">
                 <div className="landscape-grid featured-landscape-grid">
@@ -1307,11 +1523,151 @@ export default function VideoGallery({
             ))}
           </>
         )}
+          </div>
+        </div>
       </div>}
 
       {!searchMode && isMobile && !mobilePlaybackMode && (
-        <section className="mobile-browse" aria-label="Samsar video library">
-          {rankedVideos.length === 0 ? (
+        <>
+          <div className="mobile-category-bar">
+            <button
+              aria-expanded={mobileCategoryOpen}
+              aria-label="Open video categories"
+              className="mobile-category-bar__trigger"
+              onClick={() => setMobileCategoryOpen(true)}
+              type="button"
+            >
+              <Icon name="menu" size={18} />
+              <span>Categories</span>
+            </button>
+            <div className="mobile-category-bar__breadcrumb" aria-label="Breadcrumb">
+              <button onClick={() => selectCategory(null)} type="button">Home</button>
+              <span aria-hidden="true">/</span>
+              <strong>{selectedCategoryItem?.name ?? 'All videos'}</strong>
+            </div>
+          </div>
+
+          {mobileCategoryOpen && (
+            <>
+              <button
+                aria-label="Close video categories"
+                className="mobile-category-scrim"
+                onClick={() => setMobileCategoryOpen(false)}
+                type="button"
+              />
+              <aside aria-label="Browse video categories" aria-modal="true" className="mobile-category-drawer" role="dialog">
+                <div className="mobile-category-drawer__header">
+                  <div>
+                    <span>Browse</span>
+                    <strong>Video categories</strong>
+                  </div>
+                  <button
+                    aria-label="Close video categories"
+                    className="mobile-category-drawer__close"
+                    onClick={() => setMobileCategoryOpen(false)}
+                    type="button"
+                  >
+                    <Icon name="close" size={18} />
+                  </button>
+                </div>
+                <button
+                  className={`mobile-category-drawer__item${selectedCategoryItem ? '' : ' is-active'}`}
+                  onClick={() => selectCategory(null)}
+                  type="button"
+                >
+                  <span>All videos</span>
+                  <small>{formatCompactNumber(videos.length)}</small>
+                </button>
+                <div className="mobile-category-drawer__label">Popular categories</div>
+                <div className="mobile-category-drawer__list">
+                  {categoryItems.map((category) => (
+                    <button
+                      className={`mobile-category-drawer__item${selectedCategoryItem?.key === category.key ? ' is-active' : ''}`}
+                      key={category.key}
+                      onClick={() => selectCategory(category.key)}
+                      type="button"
+                    >
+                      <span>{category.name}</span>
+                      <small>{formatCompactNumber(category.count)}</small>
+                    </button>
+                  ))}
+                </div>
+                {categoryItems.length === 0 && (
+                  <p className="mobile-category-drawer__empty">Categories will appear as videos are published.</p>
+                )}
+              </aside>
+            </>
+          )}
+
+          <section className="mobile-browse" aria-label="Samsar video library">
+          {selectedCategoryItem ? (
+            <div className="mobile-category-results">
+              <div className="mobile-category-results__heading">
+                <span className="category-results__eyebrow">Category</span>
+                <h1>{selectedCategoryItem.name}</h1>
+                <p>{formatCompactNumber(categoryResults.length)} videos in this collection</p>
+              </div>
+              {categoryResults.length === 0 ? (
+                <div className="library-state library-state--inline">
+                  <h2>No videos in this category yet.</h2>
+                  <p>Try another popular category.</p>
+                </div>
+              ) : (
+                <>
+                  {categoryLandscapeResults.length > 0 && (
+                    <section className="mobile-browse__section mobile-category-results__group" aria-labelledby="mobile-category-landscape-title">
+                      <div className="mobile-browse__section-heading">
+                        <h2 id="mobile-category-landscape-title">Landscape</h2>
+                        <span>{formatCompactNumber(categoryLandscapeResults.length)} videos</span>
+                      </div>
+                      <div className="mobile-browse__landscape-stack">
+                        {categoryLandscapeResults.map((video) => (
+                          <MobileBrowseCard
+                            format="landscape"
+                            key={video.id}
+                            onMetadata={updateInferredAspectRatio}
+                            onOpen={startMobilePlayback}
+                            onUnavailable={markVideoUnavailable}
+                            video={video}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                  {categoryPortraitResults.length > 0 && (
+                    <section className="mobile-browse__section mobile-category-results__group" aria-labelledby="mobile-category-portrait-title">
+                      <div className="mobile-browse__section-heading">
+                        <h2 id="mobile-category-portrait-title">Portrait</h2>
+                        <span>{formatCompactNumber(categoryPortraitResults.length)} videos</span>
+                      </div>
+                      <div className="mobile-browse__portrait-grid">
+                        {categoryPortraitResults.map((video) => (
+                          <MobileBrowseCard
+                            format="portrait"
+                            key={video.id}
+                            onMetadata={updateInferredAspectRatio}
+                            onOpen={startMobilePlayback}
+                            onUnavailable={markVideoUnavailable}
+                            video={video}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                  {hasMore && (
+                    <button
+                      className="load-more-button mobile-browse__load-more"
+                      disabled={loadingMore}
+                      onClick={() => void loadVideos(nextCursor)}
+                      type="button"
+                    >
+                      {loadingMore ? 'Loading…' : 'Show more'} <Icon name="arrow" size={17} />
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          ) : rankedVideos.length === 0 ? (
             <div className="library-state library-state--inline">
               <h2>No videos match “{query}”</h2>
               <button onClick={() => setQuery('')} type="button">Clear search</button>
@@ -1397,7 +1753,8 @@ export default function VideoGallery({
               )}
             </>
           )}
-        </section>
+          </section>
+        </>
       )}
 
       {isMobile && mobilePlaybackMode === 'portrait' && <section className="mobile-shorts mobile-playback" aria-label="Video recommendation feed">
