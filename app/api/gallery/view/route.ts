@@ -29,9 +29,9 @@ export async function POST(request: NextRequest) {
   const userId = typeof user?._id === 'string' ? user._id : null;
   const existingVisitor = request.cookies.get(VISITOR_COOKIE)?.value;
   const visitor = existingVisitor || crypto.randomUUID();
-  const viewerId = createGalleryViewerId(userId ? `user:${userId}` : `visitor:${visitor}`);
 
   try {
+    const viewerId = createGalleryViewerId(userId ? `user:${userId}` : `visitor:${visitor}`);
     const result = await sendGalleryView({
       publication_id: publicationId,
       viewer_id: viewerId,

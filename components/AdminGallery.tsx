@@ -273,8 +273,8 @@ export default function AdminGallery() {
 
       <section className="admin-overview" aria-label="Gallery overview">
         <div><strong>{totalCount ?? videos.length}</strong><span>Published videos</span></div>
-        <div><strong>{videos.filter(isPortraitVideo).length}</strong><span>Shorts</span></div>
-        <div><strong>{videos.filter((video) => !isPortraitVideo(video)).length}</strong><span>Landscape</span></div>
+        <div><strong>{videos.filter(isPortraitVideo).length}</strong><span>9:16 videos</span></div>
+        <div><strong>{videos.filter((video) => !isPortraitVideo(video)).length}</strong><span>16:9 videos</span></div>
         <label className="admin-search">
           <span aria-hidden="true">⌕</span>
           <input
@@ -311,7 +311,7 @@ export default function AdminGallery() {
               </div>
             </div>
             <span className={`admin-format ${isPortraitVideo(video) ? 'is-short' : ''}`}>
-              {isPortraitVideo(video) ? 'Short' : 'Landscape'}
+              {isPortraitVideo(video) ? '9:16' : '16:9'}
             </span>
             <div className="admin-engagement">
               <span>▶ {formatCompactNumber(video.stats.views)}</span>
@@ -388,9 +388,9 @@ export default function AdminGallery() {
               <label>
                 <span>Format</span>
                 <select onChange={(event) => updateForm('aspectRatio', event.target.value)} value={form.aspectRatio}>
-                  <option value="16:9">Landscape · 16:9</option>
-                  <option value="9:16">Short · 9:16</option>
-                  <option value="1:1">Square · 1:1</option>
+                  <option value="16:9">16:9</option>
+                  <option value="9:16">9:16</option>
+                  <option value="1:1">1:1</option>
                 </select>
               </label>
               <label className="admin-form__wide">

@@ -19,6 +19,7 @@ import {
 import { getExistingAuthToken } from '@/lib/auth';
 
 const PAGE_SIZE = 48;
+type MobilePlaybackMode = 'portrait' | 'landscape';
 
 type IconName =
   | 'arrow'
@@ -83,14 +84,29 @@ const mergeUniqueVideos = (...collections: PublishedVideo[][]): PublishedVideo[]
   return Array.from(map.values());
 };
 
+const popularityScore = (video: PublishedVideo) =>
+  video.stats.views +
+  video.stats.likes * 8 +
+  video.stats.comments * 12 +
+  video.stats.shares * 16;
+
+const sortByPopularity = (collection: PublishedVideo[]) =>
+  [...collection].sort((left, right) => {
+    const scoreDifference = popularityScore(right) - popularityScore(left);
+    if (scoreDifference !== 0) return scoreDifference;
+    return new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
+  });
+
 function PreviewVideo({
   video,
   onMetadata,
-  onUnavailable
+  onUnavailable,
+  playOnHover = true
 }: {
   video: PublishedVideo;
   onMetadata: (video: PublishedVideo, element: HTMLVideoElement) => void;
   onUnavailable: (id: string) => void;
+  playOnHover?: boolean;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const [shouldLoad, setShouldLoad] = useState(false);
@@ -118,12 +134,14 @@ function PreviewVideo({
 
   return (
     <video
-      loop
+      loop={playOnHover}
       muted
       onLoadedMetadata={(event) => onMetadata(video, event.currentTarget)}
       onError={() => onUnavailable(video.id)}
-      onMouseEnter={(event) => void event.currentTarget.play().catch(() => undefined)}
-      onMouseLeave={(event) => event.currentTarget.pause()}
+      onMouseEnter={playOnHover
+        ? (event) => void event.currentTarget.play().catch(() => undefined)
+        : undefined}
+      onMouseLeave={playOnHover ? (event) => event.currentTarget.pause() : undefined}
       playsInline
       poster={video.posterUrl}
       preload={shouldLoad ? 'metadata' : 'none'}
@@ -220,6 +238,72 @@ function LandscapeCard({
           onShare={onShare}
           video={video}
         />
+      </div>
+    </article>
+  );
+}
+
+function PortraitFeatureCard({
+  video,
+  rank,
+  onOpen,
+  onMetadata,
+  onUnavailable
+}: {
+  video: PublishedVideo;
+  rank: number;
+  onOpen: (video: PublishedVideo) => void;
+  onMetadata: (video: PublishedVideo, element: HTMLVideoElement) => void;
+  onUnavailable: (id: string) => void;
+}) {
+  return (
+    <article className="portrait-feature-card">
+      <button onClick={() => onOpen(video)} type="button" aria-label={`Play ${video.title}`}>
+        <PreviewVideo
+          onMetadata={onMetadata}
+          onUnavailable={onUnavailable}
+          video={video}
+        />
+        <span className="portrait-feature-card__shade" />
+        <span className="portrait-feature-card__rank">{rank}</span>
+        <span className="portrait-feature-card__play"><Icon name="play" size={18} /></span>
+        <span className="portrait-feature-card__body">
+          <strong>{video.title}</strong>
+          <small>{mediaCreator(video)} · {formatCompactNumber(video.stats.views)} views</small>
+        </span>
+      </button>
+    </article>
+  );
+}
+
+function MobileBrowseCard({
+  video,
+  format,
+  onOpen,
+  onMetadata,
+  onUnavailable
+}: {
+  video: PublishedVideo;
+  format: MobilePlaybackMode;
+  onOpen: (video: PublishedVideo) => void;
+  onMetadata: (video: PublishedVideo, element: HTMLVideoElement) => void;
+  onUnavailable: (id: string) => void;
+}) {
+  return (
+    <article className={`mobile-browse-card mobile-browse-card--${format}`}>
+      <button onClick={() => onOpen(video)} type="button" aria-label={`Play ${video.title}`}>
+        <PreviewVideo
+          onMetadata={onMetadata}
+          onUnavailable={onUnavailable}
+          playOnHover={false}
+          video={video}
+        />
+        <span className="mobile-browse-card__shade" />
+        <span className="mobile-browse-card__play"><Icon name="play" size={17} /></span>
+      </button>
+      <div>
+        <strong>{video.title}</strong>
+        <small>{mediaCreator(video)} · {formatCompactNumber(video.stats.views)} views</small>
       </div>
     </article>
   );
@@ -365,12 +449,19 @@ function VideoDialog({
   );
 }
 
-export default function VideoGallery() {
+export default function VideoGallery({
+  initialQuery = '',
+  searchMode = false
+}: {
+  initialQuery?: string;
+  searchMode?: boolean;
+}) {
   const [videos, setVideos] = useState<PublishedVideo[]>([]);
   const [isMobile, setIsMobile] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<PublishedVideo | null>(null);
+  const [mobilePlaybackMode, setMobilePlaybackMode] = useState<MobilePlaybackMode | null>(null);
   const [activeMobileId, setActiveMobileId] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [searchResults, setSearchResults] = useState<PublishedVideo[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [homeRecommendations, setHomeRecommendations] = useState<PublishedVideo[]>([]);
@@ -452,7 +543,14 @@ export default function VideoGallery() {
   }, [loadVideos]);
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    setQuery(initialQuery);
+    setSearchResults(null);
+  }, [initialQuery]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(
+      '(max-width: 767px), (max-width: 960px) and (max-height: 500px) and (orientation: landscape)'
+    );
     const updateViewport = () => setIsMobile(mediaQuery.matches);
     updateViewport();
     mediaQuery.addEventListener('change', updateViewport);
@@ -460,11 +558,12 @@ export default function VideoGallery() {
   }, []);
 
   useEffect(() => {
+    if (mobilePlaybackMode) return;
     const requestedId = new URLSearchParams(window.location.search).get('videoId');
     if (!requestedId || videos.length === 0) return;
     const requested = videos.find((video) => video.id === requestedId);
     if (requested) setSelectedVideo(requested);
-  }, [videos]);
+  }, [mobilePlaybackMode, videos]);
 
   useEffect(() => {
     const normalizedQuery = query.trim();
@@ -501,11 +600,10 @@ export default function VideoGallery() {
   }, [query]);
 
   useEffect(() => {
-    if (isMobile) return;
     const controller = new AbortController();
     const load = async () => {
       try {
-        const response = await fetch('/api/gallery/recommendations?limit=8&format=landscape', {
+        const response = await fetch('/api/gallery/recommendations?limit=40', {
           cache: 'no-store',
           signal: controller.signal
         });
@@ -519,7 +617,7 @@ export default function VideoGallery() {
     };
     void load();
     return () => controller.abort();
-  }, [isMobile]);
+  }, []);
 
   useEffect(() => {
     if (!selectedVideo) {
@@ -563,49 +661,59 @@ export default function VideoGallery() {
     );
   }, [query, searchResults, unavailableVideoIds, videos]);
 
+  const rankedVideos = useMemo(() => {
+    if (query.trim()) return searchedVideos;
+    const currentById = new Map(videos.map((video) => [video.id, video]));
+    const recommendations = homeRecommendations
+      .filter((video) => !unavailableVideoIds.has(video.id))
+      .map((video) => currentById.get(video.id) ?? video);
+    return mergeUniqueVideos(recommendations, sortByPopularity(searchedVideos));
+  }, [homeRecommendations, query, searchedVideos, unavailableVideoIds, videos]);
   const portraitVideos = useMemo(
-    () => searchedVideos.filter(isPortraitVideo),
-    [searchedVideos]
+    () => rankedVideos.filter(isPortraitVideo),
+    [rankedVideos]
   );
   const landscapeVideos = useMemo(
-    () => searchedVideos.filter((video) => !isPortraitVideo(video)),
-    [searchedVideos]
+    () => rankedVideos.filter((video) => !isPortraitVideo(video)),
+    [rankedVideos]
   );
-  // Legacy publications are often marked 9:16 even when no landscape catalogue exists.
-  // Keep the desktop library useful by presenting those videos in the 16:9 card treatment
-  // until true landscape publications are available; portrait playback remains uncropped.
-  const desktopLandscapeVideos = landscapeVideos.length > 0
-    ? landscapeVideos
-    : searchedVideos;
-  const featuredVideo = desktopLandscapeVideos[0] ?? null;
-  const landscapeGridVideos = featuredVideo
-    ? desktopLandscapeVideos.filter((video) => video.id !== featuredVideo.id)
-    : desktopLandscapeVideos;
-  const baseMobileVideos = portraitVideos.length > 0 ? portraitVideos : searchedVideos;
+  const featuredPortraitVideos = portraitVideos.slice(0, 8);
+  const desktopLandscapeVideos = landscapeVideos.length > 0 ? landscapeVideos : rankedVideos;
+  const landscapeGridVideos = desktopLandscapeVideos;
+  const mobileLeadLandscape = landscapeVideos.slice(0, 2);
+  const mobilePortraitGrid = portraitVideos.slice(0, 6);
+  const mobileRemainingLandscape = landscapeVideos.slice(2);
+  const mobileRemainingPortrait = portraitVideos.slice(6);
+  const baseMobileVideos = useMemo(
+    () => mobilePlaybackMode === 'portrait'
+      ? portraitVideos
+      : mobilePlaybackMode === 'landscape'
+        ? landscapeVideos
+        : [],
+    [landscapeVideos, mobilePlaybackMode, portraitVideos]
+  );
   const mobileVideos = (mobileQueue.length > 0 ? mobileQueue : baseMobileVideos)
-    .filter((video) => !unavailableVideoIds.has(video.id));
-  const visibleHomeRecommendations = homeRecommendations
     .filter((video) => !unavailableVideoIds.has(video.id));
   const visibleSelectedRecommendations = selectedRecommendations
     .filter((video) => !unavailableVideoIds.has(video.id));
 
   useEffect(() => {
-    if (!isMobile || baseMobileVideos.length === 0) return;
+    if (!isMobile || !mobilePlaybackMode || baseMobileVideos.length === 0) return;
     setMobileQueue((current) =>
       current.length === 0
         ? baseMobileVideos
         : mergeUniqueVideos(current, baseMobileVideos)
     );
-  }, [baseMobileVideos, isMobile]);
+  }, [baseMobileVideos, isMobile, mobilePlaybackMode]);
 
   useEffect(() => {
-    if (!isMobile || !activeMobileId) return;
+    if (!isMobile || !mobilePlaybackMode || !activeMobileId) return;
     const controller = new AbortController();
     const loadNext = async () => {
       try {
         const params = new URLSearchParams({
           videoId: activeMobileId,
-          format: 'portrait',
+          format: mobilePlaybackMode,
           limit: '12'
         });
         const response = await fetch(`/api/gallery/recommendations?${params.toString()}`, {
@@ -630,16 +738,16 @@ export default function VideoGallery() {
     };
     void loadNext();
     return () => controller.abort();
-  }, [activeMobileId, isMobile]);
+  }, [activeMobileId, isMobile, mobilePlaybackMode]);
 
   useEffect(() => {
-    if (isMobile && !activeMobileId && mobileVideos[0]) {
+    if (isMobile && mobilePlaybackMode && !activeMobileId && mobileVideos[0]) {
       setActiveMobileId(mobileVideos[0].id);
     }
-  }, [activeMobileId, isMobile, mobileVideos]);
+  }, [activeMobileId, isMobile, mobilePlaybackMode, mobileVideos]);
 
   useEffect(() => {
-    if (!isMobile) return;
+    if (!isMobile || !mobilePlaybackMode) return;
 
     const elements = Object.values(mobileItemRefs.current).filter(
       (item): item is HTMLElement => Boolean(item)
@@ -658,10 +766,10 @@ export default function VideoGallery() {
     );
     elements.forEach((element) => observer.observe(element));
     return () => observer.disconnect();
-  }, [isMobile, mobileVideos]);
+  }, [isMobile, mobilePlaybackMode, mobileVideos]);
 
   useEffect(() => {
-    if (!isMobile) return;
+    if (!isMobile || !mobilePlaybackMode) return;
 
     Object.entries(mobileVideoRefs.current).forEach(([id, element]) => {
       if (!element) return;
@@ -677,7 +785,7 @@ export default function VideoGallery() {
     if (activeIndex >= mobileVideos.length - 3 && hasMore && !loadingMore) {
       void loadVideos(nextCursor);
     }
-  }, [activeMobileId, hasMore, isMobile, loadVideos, loadingMore, mobileVideos, muted, nextCursor]);
+  }, [activeMobileId, hasMore, isMobile, loadVideos, loadingMore, mobilePlaybackMode, mobileVideos, muted, nextCursor]);
 
   const updateInferredAspectRatio = useCallback(
     (video: PublishedVideo, element: HTMLVideoElement) => {
@@ -831,6 +939,29 @@ export default function VideoGallery() {
     }
   }, [showToast]);
 
+  const startMobilePlayback = useCallback((video: PublishedVideo) => {
+    const mode: MobilePlaybackMode = isPortraitVideo(video) ? 'portrait' : 'landscape';
+    const candidates = mode === 'portrait' ? portraitVideos : landscapeVideos;
+    mobileViewStartedRef.current.clear();
+    mobileProgressReportedRef.current.clear();
+    setMobileQueue(mergeUniqueVideos([video], candidates));
+    setActiveMobileId(video.id);
+    setMobilePlaybackMode(mode);
+    const url = new URL(window.location.href);
+    url.searchParams.set('videoId', video.id);
+    window.history.replaceState({}, '', url);
+  }, [landscapeVideos, portraitVideos]);
+
+  const closeMobilePlayback = useCallback(() => {
+    Object.values(mobileVideoRefs.current).forEach((element) => element?.pause());
+    setMobilePlaybackMode(null);
+    setMobileQueue([]);
+    setActiveMobileId(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('videoId');
+    window.history.replaceState({}, '', url);
+  }, []);
+
   const openVideo = useCallback((video: PublishedVideo) => {
     setSelectedVideo(video);
     const url = new URL(window.location.href);
@@ -851,6 +982,7 @@ export default function VideoGallery() {
   const mobileActiveIndex = mobileVideos.findIndex(
     (video) => video.id === activeMobileId
   );
+  const openSearchResult = isMobile ? startMobilePlayback : openVideo;
 
   if (loading && videos.length === 0) {
     return (
@@ -876,25 +1008,79 @@ export default function VideoGallery() {
 
   return (
     <>
-      {!isMobile && <div className="desktop-library">
-        <header className="library-intro">
+      {searchMode && !mobilePlaybackMode && (
+        <div className="search-results-page">
+          <header className="search-results-header">
+            <span>Semantic search</span>
+            <h1>{query.trim() ? `Results for “${query.trim()}”` : 'Search the video library'}</h1>
+            <p>Closest matches appear first, followed by relevant recommendations.</p>
+          </header>
+
+          {!query.trim() ? (
+            <div className="library-state library-state--inline">
+              <h2>Enter a title, topic, creator, or description above.</h2>
+            </div>
+          ) : searchedVideos.length === 0 && !searchLoading ? (
+            <div className="library-state library-state--inline">
+              <h2>No videos match “{query}”</h2>
+              <p>Try another title, topic, creator, or description.</p>
+            </div>
+          ) : (
+            <>
+              {searchLoading && <div className="search-results-loading">Refining matches…</div>}
+
+              {(landscapeVideos.length > 0 || portraitVideos.length > 0) && (
+                <section className="search-results-section" aria-labelledby="search-results-title">
+                  <div className="section-heading">
+                    <div>
+                      <span>Recommended for your search</span>
+                      <h2 id="search-results-title">Top results</h2>
+                    </div>
+                    <p>{searchedVideos.length} results</p>
+                  </div>
+                  {landscapeVideos.length > 0 && (
+                    <div className="landscape-grid search-landscape-grid">
+                      {landscapeVideos.map((video) => (
+                        <LandscapeCard
+                          key={video.id}
+                          liking={likingIds.has(video.id)}
+                          onLike={toggleLike}
+                          onMetadata={updateInferredAspectRatio}
+                          onOpen={openSearchResult}
+                          onShare={shareVideo}
+                          onUnavailable={markVideoUnavailable}
+                          video={video}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {portraitVideos.length > 0 && (
+                    <div className="search-portrait-grid">
+                      {portraitVideos.map((video, index) => (
+                        <PortraitFeatureCard
+                          key={video.id}
+                          onMetadata={updateInferredAspectRatio}
+                          onOpen={openSearchResult}
+                          onUnavailable={markVideoUnavailable}
+                          rank={index + 1}
+                          video={video}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {!searchMode && !isMobile && <div className="desktop-library">
+        <header className="library-toolbar">
           <div>
-            <span className="library-intro__eyebrow">Made with Samsar</span>
-            <h1>Stories worth watching.</h1>
-            <p>Explore films, ideas, and impossible worlds created by the Samsar community.</p>
+            <span>{query ? 'Matching your search' : homeRecommendationReason === 'based_on_watch_history' ? 'Based on your watch history' : 'Most popular now'}</span>
+            <h1>{query ? 'Search results' : 'Featured videos'}</h1>
           </div>
-          <label className="library-search">
-            <Icon name="search" size={19} />
-            <span className="sr-only">Search the gallery</span>
-            <input
-              aria-busy={searchLoading}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search videos and creators"
-              type="search"
-              value={query}
-            />
-            {searchLoading && <span className="library-search__spinner" aria-hidden="true" />}
-          </label>
         </header>
 
         {searchedVideos.length === 0 ? (
@@ -905,63 +1091,23 @@ export default function VideoGallery() {
           </div>
         ) : (
           <>
-            {featuredVideo && (
-              <section className="featured-video" aria-labelledby="featured-title">
-                <button className="featured-video__media" onClick={() => openVideo(featuredVideo)} type="button">
-                  <video
-                    autoPlay
-                    loop
-                    muted
-                    onLoadedMetadata={(event) => updateInferredAspectRatio(featuredVideo, event.currentTarget)}
-                    onError={() => markVideoUnavailable(featuredVideo.id)}
-                    playsInline
-                    poster={featuredVideo.posterUrl}
-                    preload="auto"
-                    src={featuredVideo.videoUrl}
-                  />
-                  <span className="featured-video__scrim" />
-                  <span className="featured-video__label">Featured</span>
-                  <span className="featured-video__watch"><Icon name="play" size={17} /> Watch now</span>
-                </button>
-                <div className="featured-video__content">
-                  <span className="featured-video__creator">{mediaCreator(featuredVideo)}</span>
-                  <h2 id="featured-title">{featuredVideo.title}</h2>
-                  <p>{featuredVideo.description || 'A new story from the Samsar creator community.'}</p>
-                  <div className="featured-video__footer">
-                    <span>{formatPublishedDate(featuredVideo.createdAt)}</span>
-                    <VideoActions
-                      compact
-                      liking={likingIds.has(featuredVideo.id)}
-                      onLike={toggleLike}
-                      onShare={shareVideo}
-                      video={featuredVideo}
-                    />
-                  </div>
-                </div>
-              </section>
-            )}
-
-            {!query && visibleHomeRecommendations.length > 0 && (
-              <section className="library-section library-section--recommended" aria-labelledby="recommended-title">
+            {featuredPortraitVideos.length > 0 && (
+              <section className="featured-portrait-section" aria-labelledby="featured-portrait-title">
                 <div className="section-heading">
                   <div>
-                    <span>{homeRecommendationReason === 'based_on_watch_history' ? 'Based on your watch history' : 'Selected for you'}</span>
-                    <h2 id="recommended-title">
-                      {homeRecommendationReason === 'popular_now' ? 'Popular now' : 'Recommended for you'}
-                    </h2>
+                    <span>{homeRecommendationReason === 'based_on_watch_history' ? 'Picked for you' : 'Popular now'}</span>
+                    <h2 id="featured-portrait-title">Featured videos</h2>
                   </div>
-                  <p>Ranked by relevance, quality, and engagement</p>
+                  <p>{homeRecommendationReason === 'based_on_watch_history' ? 'Ordered for your interests' : 'Ordered by global popularity'}</p>
                 </div>
-                <div className="landscape-grid landscape-grid--recommended">
-                  {visibleHomeRecommendations.map((video) => (
-                    <LandscapeCard
-                      key={`recommended-${video.id}`}
-                      liking={likingIds.has(video.id)}
-                      onLike={toggleLike}
+                <div className="featured-portrait-grid">
+                  {featuredPortraitVideos.map((video, index) => (
+                    <PortraitFeatureCard
+                      key={video.id}
                       onMetadata={updateInferredAspectRatio}
                       onOpen={openVideo}
-                      onShare={shareVideo}
                       onUnavailable={markVideoUnavailable}
+                      rank={index + 1}
                       video={video}
                     />
                   ))}
@@ -969,44 +1115,13 @@ export default function VideoGallery() {
               </section>
             )}
 
-            <section className="library-section shorts-section" id="shorts" aria-labelledby="shorts-title">
+            <section className="library-section" id="popular" aria-labelledby="popular-landscape-title">
               <div className="section-heading">
                 <div>
-                  <span>Quick watch</span>
-                  <h2 id="shorts-title">Shorts</h2>
-                </div>
-                <p>Vertical stories from the community</p>
-              </div>
-              {portraitVideos.length > 0 ? (
-                <div className="shorts-carousel">
-                  {portraitVideos.map((video) => (
-                    <article className="short-card" key={video.id}>
-                      <button onClick={() => openVideo(video)} type="button" aria-label={`Play ${video.title}`}>
-                        <PreviewVideo
-                          onMetadata={updateInferredAspectRatio}
-                          onUnavailable={markVideoUnavailable}
-                          video={video}
-                        />
-                        <span className="short-card__shade" />
-                        <span className="short-card__play"><Icon name="play" size={18} /></span>
-                        <span className="short-card__body">
-                          <strong>{video.title}</strong>
-                          <small>{mediaCreator(video)}</small>
-                        </span>
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="shorts-empty">Fresh Shorts are on the way.</div>
-              )}
-            </section>
-
-            <section className="library-section" aria-labelledby="latest-title">
-              <div className="section-heading">
-                <div>
-                  <span>Keep exploring</span>
-                  <h2 id="latest-title">Latest videos</h2>
+                  <span>{query ? 'More matches' : 'Watch next'}</span>
+                  <h2 id="popular-landscape-title">
+                    {query ? 'Video results' : homeRecommendationReason === 'based_on_watch_history' ? 'Recommended videos' : 'Popular videos'}
+                  </h2>
                 </div>
                 <p>{desktopLandscapeVideos.length} videos</p>
               </div>
@@ -1039,7 +1154,113 @@ export default function VideoGallery() {
         )}
       </div>}
 
-      {isMobile && <section className="mobile-shorts" aria-label="Samsar Shorts">
+      {!searchMode && isMobile && !mobilePlaybackMode && (
+        <section className="mobile-browse" aria-label="Samsar video library">
+          <header className="mobile-browse__header">
+            <div>
+              <span>{homeRecommendationReason === 'based_on_watch_history' ? 'Picked for you' : 'Popular now'}</span>
+              <h1>Discover videos</h1>
+            </div>
+          </header>
+
+          {rankedVideos.length === 0 ? (
+            <div className="library-state library-state--inline">
+              <h2>No videos match “{query}”</h2>
+              <button onClick={() => setQuery('')} type="button">Clear search</button>
+            </div>
+          ) : (
+            <>
+              <div className="mobile-browse__landscape-stack" aria-label="Popular videos">
+                {mobileLeadLandscape.map((video) => (
+                  <MobileBrowseCard
+                    format="landscape"
+                    key={video.id}
+                    onMetadata={updateInferredAspectRatio}
+                    onOpen={startMobilePlayback}
+                    onUnavailable={markVideoUnavailable}
+                    video={video}
+                  />
+                ))}
+              </div>
+
+              {mobilePortraitGrid.length > 0 && (
+                <section className="mobile-browse__section" aria-labelledby="mobile-featured-title">
+                  <div className="mobile-browse__section-heading">
+                    <h2 id="mobile-featured-title">Featured videos</h2>
+                    <span>Tap to watch</span>
+                  </div>
+                  <div className="mobile-browse__portrait-grid">
+                    {mobilePortraitGrid.map((video) => (
+                      <MobileBrowseCard
+                        format="portrait"
+                        key={video.id}
+                        onMetadata={updateInferredAspectRatio}
+                        onOpen={startMobilePlayback}
+                        onUnavailable={markVideoUnavailable}
+                        video={video}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {mobileRemainingLandscape.length > 0 && (
+                <section className="mobile-browse__section" aria-labelledby="mobile-landscape-title">
+                  <div className="mobile-browse__section-heading">
+                    <h2 id="mobile-landscape-title">More to watch</h2>
+                    <span>Recommended for this session</span>
+                  </div>
+                  <div className="mobile-browse__landscape-stack">
+                    {mobileRemainingLandscape.map((video) => (
+                      <MobileBrowseCard
+                        format="landscape"
+                        key={video.id}
+                        onMetadata={updateInferredAspectRatio}
+                        onOpen={startMobilePlayback}
+                        onUnavailable={markVideoUnavailable}
+                        video={video}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {mobileRemainingPortrait.length > 0 && (
+                <section className="mobile-browse__section" aria-label="More videos">
+                  <div className="mobile-browse__portrait-grid">
+                    {mobileRemainingPortrait.map((video) => (
+                      <MobileBrowseCard
+                        format="portrait"
+                        key={video.id}
+                        onMetadata={updateInferredAspectRatio}
+                        onOpen={startMobilePlayback}
+                        onUnavailable={markVideoUnavailable}
+                        video={video}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {hasMore && (
+                <button
+                  className="load-more-button mobile-browse__load-more"
+                  disabled={loadingMore}
+                  onClick={() => void loadVideos(nextCursor)}
+                  type="button"
+                >
+                  {loadingMore ? 'Loading…' : 'Show more'} <Icon name="arrow" size={17} />
+                </button>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
+      {isMobile && mobilePlaybackMode === 'portrait' && <section className="mobile-shorts mobile-playback" aria-label="Video recommendation feed">
+        <button className="mobile-feed__back" onClick={closeMobilePlayback} type="button" aria-label="Back to video library">
+          <Icon name="close" size={20} />
+        </button>
         {mobileVideos.map((video, index) => {
           const isActive = activeMobileId === video.id;
           const shouldLoad =
@@ -1106,6 +1327,59 @@ export default function VideoGallery() {
         {mobileVideos.length === 0 && (
           <div className="library-state"><h1>No videos yet</h1><p>Check back soon.</p></div>
         )}
+      </section>}
+
+      {isMobile && mobilePlaybackMode === 'landscape' && <section className="mobile-landscape-feed mobile-playback" aria-label="Video recommendation feed">
+        <button className="mobile-feed__back" onClick={closeMobilePlayback} type="button" aria-label="Back to video library">
+          <Icon name="close" size={20} />
+        </button>
+        {mobileVideos.map((video, index) => {
+          const isActive = activeMobileId === video.id;
+          const shouldLoad = mobileActiveIndex < 0
+            ? index < 2
+            : Math.abs(index - mobileActiveIndex) <= 2;
+          return (
+            <article
+              className="mobile-landscape-player"
+              data-video-id={video.id}
+              key={video.id}
+              ref={(element) => { mobileItemRefs.current[video.id] = element; }}
+            >
+              <div className="mobile-landscape-player__media">
+                <video
+                  controls
+                  muted={muted || !isActive}
+                  onLoadedMetadata={(event) => updateInferredAspectRatio(video, event.currentTarget)}
+                  onError={() => markVideoUnavailable(video.id)}
+                  onEnded={(event) => advanceMobileVideo(video, event.currentTarget)}
+                  onPlaying={(event) => handleMobilePlaying(video, event.currentTarget)}
+                  onTimeUpdate={(event) => handleMobileProgress(video, event.currentTarget)}
+                  playsInline
+                  poster={video.posterUrl}
+                  preload={isActive ? 'auto' : 'metadata'}
+                  ref={(element) => { mobileVideoRefs.current[video.id] = element; }}
+                  src={shouldLoad ? video.videoUrl : undefined}
+                />
+              </div>
+              <div className="mobile-landscape-player__details">
+                <span>{mediaCreator(video)}</span>
+                <h2>{video.title}</h2>
+                {video.description && <p>{video.description}</p>}
+                <div className="mobile-landscape-player__actions">
+                  <button onClick={() => void toggleLike(video.id)} type="button">
+                    <Icon name="heart" size={20} /> {formatCompactNumber(video.stats.likes)}
+                  </button>
+                  <button onClick={() => openVideo(video)} type="button">
+                    <Icon name="message" size={20} /> {formatCompactNumber(video.stats.comments)}
+                  </button>
+                  <button onClick={() => void shareVideo(video)} type="button">
+                    <Icon name="share" size={20} /> Share
+                  </button>
+                </div>
+              </div>
+            </article>
+          );
+        })}
       </section>}
 
       {selectedCurrent && (

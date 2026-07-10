@@ -1,8 +1,8 @@
 # Samsar Gallery
 
-The public Samsar video library. Desktop presents a landscape-first discovery
-experience with a featured film, a horizontal Shorts carousel, and a landscape
-video grid. Mobile opens directly into an autoplaying vertical feed.
+The public Samsar video library. Desktop presents recommendation-ranked portrait
+features and landscape video grids. Mobile opens on a mixed 16:9 and 9:16 browse
+library, then enters an aspect-specific recommendation feed after selection.
 
 Use the API to create T2V up to 3 minutes long. Find docs here: https://docs.samsar.one
 

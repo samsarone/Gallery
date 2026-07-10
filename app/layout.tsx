@@ -4,8 +4,8 @@ import TopNav from '@/components/TopNav';
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://gallery.samsar.one';
 const metadataBase = new URL(siteUrl);
-const ogTitle = 'Samsar Gallery — Stories worth watching';
-const ogDescription = 'Explore films, ideas, and impossible worlds created by the Samsar community.';
+const ogTitle = 'Samsar Gallery — Discover videos';
+const ogDescription = 'Discover popular and personalized videos created by the Samsar community.';
 
 export const metadata: Metadata = {
   metadataBase,

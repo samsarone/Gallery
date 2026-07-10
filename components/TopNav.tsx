@@ -1,7 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import type { Route } from 'next';
+import { useRouter } from 'next/navigation';
 import {
+  type FormEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -9,13 +12,28 @@ import {
   useState
 } from 'react';
 import LoginDialog from './LoginDialog';
-import type { AuthenticatedUser } from '@/lib/types';
+import type { AuthenticatedUser, PublishedVideo } from '@/lib/types';
 import {
   clearAuthToken,
   getExistingAuthToken,
   verifyAuthToken
 } from '@/lib/auth';
 import { SAMSAR_API_SERVER } from '@/lib/config';
+import { parseVideoCollection } from '@/lib/videos';
+
+const buildSuggestedTerms = (query: string, videos: PublishedVideo[]): string[] => {
+  const normalizedQuery = query.trim().toLowerCase();
+  const terms = new Set<string>();
+  videos.forEach((video) => {
+    if (terms.size >= 5) return;
+    if (video.title.trim()) terms.add(video.title.trim());
+    video.tags
+      ?.filter((tag) => tag.toLowerCase().includes(normalizedQuery))
+      .slice(0, 2)
+      .forEach((tag) => terms.add(tag));
+  });
+  return Array.from(terms).slice(0, 5);
+};
 
 const resolveDisplayName = (user: AuthenticatedUser | null): string | null => {
   if (!user || typeof user !== 'object') {
@@ -47,7 +65,9 @@ const resolveDisplayName = (user: AuthenticatedUser | null): string | null => {
 };
 
 export default function TopNav() {
+  const router = useRouter();
   const navRef = useRef<HTMLElement | null>(null);
+  const searchRef = useRef<HTMLFormElement | null>(null);
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [currentToken, setCurrentToken] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(false);
@@ -55,6 +75,10 @@ export default function TopNav() {
   const [isGoogleLoading, setIsGoogleLoading] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [dialogView, setDialogView] = useState<'login' | 'register'>('login');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMatches, setSearchMatches] = useState<PublishedVideo[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   const performAuthCheck = useCallback(async () => {
     const token = getExistingAuthToken();
@@ -317,6 +341,91 @@ export default function TopNav() {
     };
   }, [handleOpenDialog]);
 
+  useEffect(() => {
+    const syncQueryFromUrl = () => {
+      const query = new URLSearchParams(window.location.search).get('q') ?? '';
+      setSearchQuery(query);
+    };
+    syncQueryFromUrl();
+    window.addEventListener('popstate', syncQueryFromUrl);
+    return () => window.removeEventListener('popstate', syncQueryFromUrl);
+  }, []);
+
+  useEffect(() => {
+    const normalizedQuery = searchQuery.trim();
+    if (normalizedQuery.length < 2) {
+      setSearchMatches([]);
+      setSearchLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const response = await fetch(
+          `/api/gallery/search?q=${encodeURIComponent(normalizedQuery)}&limit=8`,
+          { cache: 'no-store', signal: controller.signal }
+        );
+        if (!response.ok) throw new Error('Semantic suggestions unavailable');
+        setSearchMatches(parseVideoCollection(await response.json()).items.slice(0, 8));
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        try {
+          const fallbackResponse = await fetch('/api/videos?limit=48', {
+            cache: 'no-store',
+            signal: controller.signal
+          });
+          if (!fallbackResponse.ok) throw new Error('Suggestions unavailable');
+          const normalized = normalizedQuery.toLowerCase();
+          const fallbackMatches = parseVideoCollection(await fallbackResponse.json()).items
+            .filter((video) =>
+              [video.title, video.description, ...(video.tags ?? [])]
+                .some((value) => value.toLowerCase().includes(normalized))
+            )
+            .slice(0, 8);
+          setSearchMatches(fallbackMatches);
+        } catch {
+          setSearchMatches([]);
+        }
+      } finally {
+        if (!controller.signal.aborted) setSearchLoading(false);
+      }
+    }, 240);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!searchRef.current?.contains(event.target as Node)) setSearchOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
+  }, []);
+
+  const navigateToSearch = useCallback((query: string) => {
+    const normalized = query.trim();
+    if (!normalized) return;
+    const params = new URLSearchParams({ q: normalized });
+    setSearchQuery(normalized);
+    setSearchOpen(false);
+    router.push(`/search?${params.toString()}` as Route);
+  }, [router]);
+
+  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    navigateToSearch(searchQuery);
+  };
+
+  const suggestedTerms = useMemo(
+    () => buildSuggestedTerms(searchQuery, searchMatches),
+    [searchMatches, searchQuery]
+  );
+
   return (
     <>
       <nav className="top-nav" ref={navRef}>
@@ -326,11 +435,78 @@ export default function TopNav() {
             <span>Samsar <b>Gallery</b></span>
           </Link>
 
-          <div className="top-nav__links" aria-label="Gallery navigation">
-            <Link href="/">Discover</Link>
-            <Link href="/#shorts">Shorts</Link>
-            {user?.isAdminUser && <a href="/admin">Studio</a>}
-          </div>
+          <form className="top-nav-search" onSubmit={handleSearchSubmit} ref={searchRef} role="search">
+            <svg aria-hidden="true" fill="none" height="17" viewBox="0 0 24 24" width="17">
+              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+              <path d="m20 20-4-4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+            </svg>
+            <input
+              aria-label="Search videos"
+              autoComplete="off"
+              onChange={(event) => {
+                setSearchQuery(event.target.value);
+                setSearchOpen(true);
+              }}
+              onFocus={() => setSearchOpen(true)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') setSearchOpen(false);
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  navigateToSearch(searchQuery);
+                }
+              }}
+              placeholder="Search videos, creators, and topics"
+              type="search"
+              value={searchQuery}
+            />
+            {searchLoading && <span className="top-nav-search__spinner" aria-hidden="true" />}
+
+            {searchOpen && searchQuery.trim().length >= 2 && (
+              <div className="top-nav-search__dropdown" role="listbox" aria-label="Search suggestions">
+                <button
+                  className="top-nav-search__all"
+                  onClick={() => navigateToSearch(searchQuery)}
+                  type="button"
+                >
+                  <span>Search all videos for</span>
+                  <strong>“{searchQuery.trim()}”</strong>
+                </button>
+
+                {suggestedTerms.length > 0 && (
+                  <div className="top-nav-search__terms">
+                    <span>Suggested searches</span>
+                    {suggestedTerms.map((term) => (
+                      <button key={term} onClick={() => navigateToSearch(term)} type="button">
+                        {term}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {searchMatches.length > 0 && (
+                  <div className="top-nav-search__matches">
+                    <span>Closest video matches</span>
+                    {searchMatches.slice(0, 5).map((video) => (
+                      <button
+                        key={video.id}
+                        onClick={() => navigateToSearch(video.title)}
+                        type="button"
+                      >
+                        <span>
+                          <strong>{video.title}</strong>
+                          <small>{video.description || 'Samsar video'}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {!searchLoading && searchMatches.length === 0 && (
+                  <div className="top-nav-search__empty">Press Enter to search the full library.</div>
+                )}
+              </div>
+            )}
+          </form>
 
           <div className="top-nav__actions">
             <a
