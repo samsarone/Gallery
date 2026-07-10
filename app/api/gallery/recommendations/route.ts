@@ -12,6 +12,9 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const user = await resolveAuthenticatedGalleryUser(request);
   const userId = typeof user?._id === 'string' ? user._id : null;
+  const viewerId = userId && process.env.GALLERY_VIEWER_SALT?.trim()
+    ? createGalleryViewerId(`user:${userId}`)
+    : null;
   const formatValue = url.searchParams.get('format');
   const format = ['landscape', 'portrait', 'square'].includes(formatValue ?? '')
     ? (formatValue as 'landscape' | 'portrait' | 'square')
@@ -20,7 +23,7 @@ export async function GET(request: NextRequest) {
   try {
     return NextResponse.json(
       await loadGalleryRecommendations({
-        ...(userId ? { viewer_id: createGalleryViewerId(`user:${userId}`) } : {}),
+        ...(viewerId ? { viewer_id: viewerId } : {}),
         ...(url.searchParams.get('videoId')
           ? { publication_id: url.searchParams.get('videoId')! }
           : {}),

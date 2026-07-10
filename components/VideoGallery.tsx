@@ -356,6 +356,7 @@ interface VideoDialogProps extends VideoActionsProps {
     durationMs: number
   ) => void;
   recommendations: PublishedVideo[];
+  recommendationsError: boolean;
   recommendationsLoading: boolean;
 }
 
@@ -370,6 +371,7 @@ function VideoDialog({
   onLike,
   onShare,
   recommendations,
+  recommendationsError,
   recommendationsLoading
 }: VideoDialogProps) {
   const viewStartedRef = useRef(false);
@@ -473,8 +475,11 @@ function VideoDialog({
             {recommendationsLoading && (
               <div className="watch-dialog__recommendations-loading">Finding the next stories…</div>
             )}
-            {!recommendationsLoading && recommendations.length === 0 && (
-              <div className="watch-dialog__recommendations-empty">More recommendations are being prepared.</div>
+            {!recommendationsLoading && recommendationsError && (
+              <div className="watch-dialog__recommendations-empty">Recommendations are temporarily unavailable.</div>
+            )}
+            {!recommendationsLoading && !recommendationsError && recommendations.length === 0 && (
+              <div className="watch-dialog__recommendations-empty">No related videos yet.</div>
             )}
           </aside>
         </div>
@@ -502,6 +507,7 @@ export default function VideoGallery({
   const [searchLoading, setSearchLoading] = useState(false);
   const [homeRecommendations, setHomeRecommendations] = useState<PublishedVideo[]>([]);
   const [selectedRecommendations, setSelectedRecommendations] = useState<PublishedVideo[]>([]);
+  const [recommendationsError, setRecommendationsError] = useState(false);
   const [recommendationsLoading, setRecommendationsLoading] = useState(false);
   const [mobileQueue, setMobileQueue] = useState<PublishedVideo[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -683,21 +689,27 @@ export default function VideoGallery({
   useEffect(() => {
     if (!selectedVideo) {
       setSelectedRecommendations([]);
+      setRecommendationsError(false);
       return;
     }
     const controller = new AbortController();
     const load = async () => {
       setRecommendationsLoading(true);
+      setSelectedRecommendations([]);
+      setRecommendationsError(false);
       try {
         const params = new URLSearchParams({ videoId: selectedVideo.id, limit: '14' });
         const response = await fetch(`/api/gallery/recommendations?${params.toString()}`, {
           cache: 'no-store',
           signal: controller.signal
         });
-        if (!response.ok) return;
+        if (!response.ok) throw new Error('Recommendations unavailable');
         setSelectedRecommendations(parseVideoCollection(await response.json()).items);
       } catch {
-        setSelectedRecommendations([]);
+        if (!controller.signal.aborted) {
+          setSelectedRecommendations([]);
+          setRecommendationsError(true);
+        }
       } finally {
         if (!controller.signal.aborted) setRecommendationsLoading(false);
       }
@@ -899,8 +911,16 @@ export default function VideoGallery({
   );
   const mobileVideos = (mobileQueue.length > 0 ? mobileQueue : baseMobileVideos)
     .filter((video) => !unavailableVideoIds.has(video.id));
-  const visibleSelectedRecommendations = selectedRecommendations
-    .filter((video) => !unavailableVideoIds.has(video.id));
+  const visibleSelectedRecommendations = selectedRecommendations.length > 0
+    ? selectedRecommendations.filter((video) => !unavailableVideoIds.has(video.id))
+    : recommendationsError
+      ? homeRecommendations
+          .filter(
+            (video) =>
+              video.id !== selectedVideo?.id && !unavailableVideoIds.has(video.id)
+          )
+          .slice(0, 14)
+      : [];
 
   useEffect(() => {
     if (!isMobile || !mobilePlaybackMode || baseMobileVideos.length === 0) return;
@@ -1893,6 +1913,7 @@ export default function VideoGallery({
           onViewEvent={sendViewEvent}
           open
           recommendations={visibleSelectedRecommendations}
+          recommendationsError={recommendationsError && visibleSelectedRecommendations.length === 0}
           recommendationsLoading={recommendationsLoading}
           video={selectedCurrent}
         />
