@@ -488,6 +488,78 @@ function VideoDialog({
   );
 }
 
+function GallerySkeletonCard({ format }: { format: 'landscape' | 'portrait' }) {
+  return (
+    <div className={`gallery-skeleton-card gallery-skeleton-card--${format}`} aria-hidden="true">
+      <span className="gallery-skeleton-card__media" />
+      <span className="gallery-skeleton-card__body">
+        <span className="gallery-skeleton-card__line gallery-skeleton-card__line--title" />
+        <span className="gallery-skeleton-card__line gallery-skeleton-card__line--meta" />
+      </span>
+    </div>
+  );
+}
+
+function GallerySkeleton() {
+  return (
+    <div className="library-loading" aria-label="Loading video library">
+      <div className="library-loading__mobile-bar" aria-hidden="true">
+        <span className="library-loading__mobile-bar-item" />
+        <span className="library-loading__mobile-bar-item library-loading__mobile-bar-item--crumb" />
+      </div>
+
+      <aside className="library-loading__nav" aria-hidden="true">
+        <div className="library-loading__nav-intro">
+          <span className="library-loading__nav-line library-loading__nav-line--eyebrow" />
+          <span className="library-loading__nav-line library-loading__nav-line--copy" />
+        </div>
+        <span className="library-loading__nav-item library-loading__nav-item--active" />
+        <span className="library-loading__nav-label" />
+        {Array.from({ length: 6 }, (_, index) => (
+          <span className="library-loading__nav-item" key={index} />
+        ))}
+      </aside>
+
+      <div className="library-loading__main">
+        <section className="library-loading__featured" aria-hidden="true">
+          <div className="landscape-grid">
+            {Array.from({ length: 3 }, (_, index) => (
+              <GallerySkeletonCard format="landscape" key={index} />
+            ))}
+          </div>
+        </section>
+
+        <section className="library-loading__section library-loading__popular" aria-hidden="true">
+          <div className="library-loading__section-heading">
+            <span className="library-loading__heading-line" />
+          </div>
+          <div className="landscape-grid library-loading__popular-landscape">
+            {Array.from({ length: 6 }, (_, index) => (
+              <GallerySkeletonCard format="landscape" key={index} />
+            ))}
+          </div>
+          <div className="featured-portrait-grid library-loading__popular-portrait-grid">
+            {Array.from({ length: 10 }, (_, index) => (
+              <GallerySkeletonCard format="portrait" key={index} />
+            ))}
+          </div>
+        </section>
+
+        <section className="library-loading__mobile-more" aria-hidden="true">
+          <div className="library-loading__section-heading">
+            <span className="library-loading__heading-line library-loading__heading-line--short" />
+          </div>
+          <div className="landscape-grid">
+            {Array.from({ length: 3 }, (_, index) => (
+              <GallerySkeletonCard format="landscape" key={index} />
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 export default function VideoGallery({
   initialQuery = '',
   searchMode = false
@@ -506,6 +578,7 @@ export default function VideoGallery({
   const [mobileCategoryOpen, setMobileCategoryOpen] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [homeRecommendations, setHomeRecommendations] = useState<PublishedVideo[]>([]);
+  const [homeRecommendationsReady, setHomeRecommendationsReady] = useState(false);
   const [selectedRecommendations, setSelectedRecommendations] = useState<PublishedVideo[]>([]);
   const [recommendationsError, setRecommendationsError] = useState(false);
   const [recommendationsLoading, setRecommendationsLoading] = useState(false);
@@ -680,6 +753,8 @@ export default function VideoGallery({
         setHomeRecommendations(parseVideoCollection(payload).items);
       } catch {
         // The standard gallery remains available while recommendations are warming up.
+      } finally {
+        if (!controller.signal.aborted) setHomeRecommendationsReady(true);
       }
     };
     void load();
@@ -1024,16 +1099,10 @@ export default function VideoGallery({
   }, [activeMobileId, hasMore, isMobile, loadVideos, loadingMore, mobilePlaybackMode, mobileVideos, muted, nextCursor]);
 
   const updateInferredAspectRatio = useCallback(
-    (video: PublishedVideo, element: HTMLVideoElement) => {
-      if (!element.videoWidth || !element.videoHeight) return;
-      const aspectRatio = `${element.videoWidth}:${element.videoHeight}`;
-      setVideos((current) =>
-        current.map((item) =>
-          item.id === video.id && item.aspectRatio !== aspectRatio
-            ? { ...item, aspectRatio }
-            : item
-        )
-      );
+    (_video: PublishedVideo, _element: HTMLVideoElement) => {
+      // Aspect ratio is a layout input. Updating it after first paint would
+      // reclassify a card and move it between grids. The publication payload
+      // owns this value, so keep the rendered layout stable while videos load.
     },
     []
   );
@@ -1237,15 +1306,10 @@ export default function VideoGallery({
   );
   const openSearchResult = isMobile ? startMobilePlayback : openVideo;
 
-  if (loading && videos.length === 0) {
-    return (
-      <div className="library-loading" aria-label="Loading video library">
-        <div className="library-loading__hero" />
-        <div className="library-loading__row">
-          {Array.from({ length: 4 }, (_, index) => <span key={index} />)}
-        </div>
-      </div>
-    );
+  const isInitialLoading = loading || !homeRecommendationsReady;
+
+  if (isInitialLoading) {
+    return <GallerySkeleton />;
   }
 
   if (error && videos.length === 0) {
