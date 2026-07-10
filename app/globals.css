@@ -1930,8 +1930,12 @@ a {
 }
 
 .watch-dialog__main {
+  min-height: 0;
   min-width: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(148, 163, 184, 0.26) transparent;
+  scrollbar-width: thin;
 }
 
 .watch-dialog__close {
@@ -1981,9 +1985,15 @@ a {
     inset: var(--nav-height) 0 0;
   }
 
-  .watch-dialog__panel,
-  .watch-dialog__layout {
+  .watch-dialog__panel {
+    height: min(860px, calc(100dvh - var(--nav-height) - 56px));
     max-height: calc(100dvh - var(--nav-height) - 56px);
+  }
+
+  .watch-dialog__layout {
+    height: 100%;
+    max-height: none;
+    min-height: 0;
   }
 }
 
@@ -2016,7 +2026,10 @@ a {
   border-left: 1px solid var(--line);
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 24px 18px;
+  scrollbar-color: rgba(148, 163, 184, 0.26) transparent;
+  scrollbar-width: thin;
 }
 
 .watch-dialog__recommendations-heading {

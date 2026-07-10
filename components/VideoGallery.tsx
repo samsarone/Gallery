@@ -594,6 +594,8 @@ export default function VideoGallery({
   const [likingIds, setLikingIds] = useState<Set<string>>(new Set());
   const mobileItemRefs = useRef<Record<string, HTMLElement | null>>({});
   const mobileVideoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
+  const mobileFeedRef = useRef<HTMLElement | null>(null);
+  const mobileIntersectionRatiosRef = useRef<Map<string, number>>(new Map());
   const mobileViewStartedRef = useRef<Set<string>>(new Set());
   const mobileProgressReportedRef = useRef<Set<string>>(new Set());
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -989,8 +991,11 @@ export default function VideoGallery({
         : [],
     [landscapeVideos, mobilePlaybackMode, portraitVideos]
   );
-  const mobileVideos = (mobileQueue.length > 0 ? mobileQueue : baseMobileVideos)
-    .filter((video) => !unavailableVideoIds.has(video.id));
+  const mobileVideos = useMemo(
+    () => (mobileQueue.length > 0 ? mobileQueue : baseMobileVideos)
+      .filter((video) => !unavailableVideoIds.has(video.id)),
+    [baseMobileVideos, mobileQueue, unavailableVideoIds]
+  );
   const fallbackSelectedRecommendations = useMemo(
     () =>
       sortByPopularity(
@@ -1065,23 +1070,49 @@ export default function VideoGallery({
   useEffect(() => {
     if (!isMobile || !mobilePlaybackMode) return;
 
+    const root = mobileFeedRef.current;
     const elements = Object.values(mobileItemRefs.current).filter(
       (item): item is HTMLElement => Boolean(item)
     );
-    if (elements.length === 0 || !('IntersectionObserver' in window)) return;
+    if (!root || elements.length === 0 || !('IntersectionObserver' in window)) return;
+
+    const intersectionRatios = mobileIntersectionRatiosRef.current;
+    intersectionRatios.clear();
 
     const observer = new IntersectionObserver(
       (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-        const id = visible?.target.getAttribute('data-video-id');
-        if (id) setActiveMobileId(id);
+        entries.forEach((entry) => {
+          const id = entry.target.getAttribute('data-video-id');
+          if (!id) return;
+          intersectionRatios.set(
+            id,
+            entry.isIntersecting ? entry.intersectionRatio : 0
+          );
+        });
+
+        let mostVisibleId: string | null = null;
+        let mostVisibleRatio = 0;
+        intersectionRatios.forEach((ratio, id) => {
+          if (ratio > mostVisibleRatio) {
+            mostVisibleId = id;
+            mostVisibleRatio = ratio;
+          }
+        });
+
+        if (mostVisibleId && mostVisibleRatio >= 0.55) {
+          setActiveMobileId(mostVisibleId);
+        }
       },
-      { threshold: [0.55, 0.75, 0.95] }
+      {
+        root,
+        threshold: [0, 0.25, 0.5, 0.55, 0.75, 0.95, 1]
+      }
     );
     elements.forEach((element) => observer.observe(element));
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      intersectionRatios.clear();
+    };
   }, [isMobile, mobilePlaybackMode, mobileVideos]);
 
   useEffect(() => {
@@ -1856,7 +1887,7 @@ export default function VideoGallery({
         </>
       )}
 
-      {isMobile && mobilePlaybackMode === 'portrait' && <section className="mobile-shorts mobile-playback" aria-label="Video recommendation feed">
+      {isMobile && mobilePlaybackMode === 'portrait' && <section className="mobile-shorts mobile-playback" aria-label="Video recommendation feed" ref={mobileFeedRef}>
         <button className="mobile-feed__back" onClick={closeMobilePlayback} type="button" aria-label="Back to video library">
           <Icon name="close" size={20} />
         </button>
@@ -1874,8 +1905,15 @@ export default function VideoGallery({
               ref={(element) => { mobileItemRefs.current[video.id] = element; }}
             >
               <video
+                autoPlay={isActive}
                 muted={muted || !isActive}
-                onLoadedMetadata={(event) => updateInferredAspectRatio(video, event.currentTarget)}
+                onCanPlay={(event) => {
+                  if (isActive) void event.currentTarget.play().catch(() => undefined);
+                }}
+                onLoadedMetadata={(event) => {
+                  updateInferredAspectRatio(video, event.currentTarget);
+                  if (isActive) void event.currentTarget.play().catch(() => undefined);
+                }}
                 onError={() => markVideoUnavailable(video.id)}
                 onEnded={(event) => advanceMobileVideo(video, event.currentTarget)}
                 onPlaying={(event) => handleMobilePlaying(video, event.currentTarget)}
@@ -1928,7 +1966,7 @@ export default function VideoGallery({
         )}
       </section>}
 
-      {isMobile && mobilePlaybackMode === 'landscape' && <section className="mobile-landscape-feed mobile-playback" aria-label="Video recommendation feed">
+      {isMobile && mobilePlaybackMode === 'landscape' && <section className="mobile-landscape-feed mobile-playback" aria-label="Video recommendation feed" ref={mobileFeedRef}>
         <button className="mobile-feed__back" onClick={closeMobilePlayback} type="button" aria-label="Back to video library">
           <Icon name="close" size={20} />
         </button>
@@ -1946,9 +1984,16 @@ export default function VideoGallery({
             >
               <div className="mobile-landscape-player__media">
                 <video
+                  autoPlay={isActive}
                   controls
                   muted={muted || !isActive}
-                  onLoadedMetadata={(event) => updateInferredAspectRatio(video, event.currentTarget)}
+                  onCanPlay={(event) => {
+                    if (isActive) void event.currentTarget.play().catch(() => undefined);
+                  }}
+                  onLoadedMetadata={(event) => {
+                    updateInferredAspectRatio(video, event.currentTarget);
+                    if (isActive) void event.currentTarget.play().catch(() => undefined);
+                  }}
                   onError={() => markVideoUnavailable(video.id)}
                   onEnded={(event) => advanceMobileVideo(video, event.currentTarget)}
                   onPlaying={(event) => handleMobilePlaying(video, event.currentTarget)}
