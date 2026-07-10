@@ -24,6 +24,7 @@ import {
   formatPublishedDate,
   normalizeVideo
 } from '@/lib/videos';
+import BotUserLabel from './BotUserLabel';
 
 type IconName = 'close' | 'heart' | 'message' | 'send' | 'share';
 
@@ -95,7 +96,7 @@ function CommentItem({ comment, depth = 0 }: { comment: VideoComment; depth?: nu
           <div className="video-comments__comment-meta">
             <strong>
               {comment.creatorHandle}
-              {comment.isBotUser ? <span className="video-comments__bot">bot</span> : null}
+              {comment.isBotUser ? <BotUserLabel /> : null}
             </strong>
             <time dateTime={comment.createdAt}>{formatCommentDate(comment.createdAt)}</time>
           </div>

@@ -616,15 +616,29 @@ a {
   font-size: 8px;
 }
 
-.video-comments__bot {
+.bot-user-label {
+  align-items: center;
   border: 1px solid rgba(70, 191, 255, 0.25);
   border-radius: 4px;
   color: var(--accent-cool);
+  display: inline-flex;
   font-family: 'IBM Plex Mono', monospace;
   font-size: 7px;
+  font-weight: 600;
+  gap: 2px;
+  line-height: 1;
   margin-left: 5px;
-  padding: 1px 3px;
+  padding: 2px 4px;
   text-transform: uppercase;
+  vertical-align: 1px;
+}
+
+.bot-user-label svg {
+  flex: 0 0 auto;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.2;
 }
 
 .video-comments__comment-body p {

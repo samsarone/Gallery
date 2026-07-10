@@ -10,6 +10,7 @@ import {
   useState
 } from 'react';
 import VideoOverlayContent from './VideoOverlayContent';
+import BotUserLabel from './BotUserLabel';
 
 import type {
   PublishedVideo,
@@ -409,9 +410,8 @@ export default function VideoModal({
                       <div className="modal__comment" key={comment.id}>
                         <div className="modal__comment-header">
                           <span className="modal__comment-author">
-                            {comment.isBotUser
-                              ? `${comment.creatorHandle} [bot]`
-                              : comment.creatorHandle}
+                            {comment.creatorHandle}
+                            {comment.isBotUser ? <BotUserLabel /> : null}
                           </span>
                           <time
                             dateTime={comment.createdAt}
