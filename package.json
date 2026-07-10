@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "npm run refresh:landing-sitemap",
+    "refresh:landing-sitemap": "node ./scripts/refresh-landing-blog-sitemap.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

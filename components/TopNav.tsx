@@ -326,23 +326,25 @@ export default function TopNav() {
     <>
       <nav className="top-nav" ref={navRef}>
         <div className="top-nav__container">
-          <div className="top-nav__brand">
-            <Link href="/">T2V Gallery</Link>
-          </div>
+          <Link className="top-nav__brand" href="/" aria-label="Samsar Gallery home">
+            <span className="top-nav__brand-mark">S</span>
+            <span>Samsar <b>Gallery</b></span>
+          </Link>
 
-          <div
-            className="top-nav__gallery-controls"
-            id="gallery-nav-controls"
-          />
+          <div className="top-nav__links" aria-label="Gallery navigation">
+            <Link href="/">Discover</Link>
+            <Link href="/#shorts">Shorts</Link>
+            {user?.isAdminUser && <a href="/admin">Studio</a>}
+          </div>
 
           <div className="top-nav__actions">
             <a
               href="https://app.samsar.one"
               target="_blank"
               rel="noopener noreferrer"
-              className="top-nav__link"
+              className="top-nav__create"
             >
-              Create your own
+              Create <span>a video</span>
             </a>
 
             {user ? (
@@ -354,10 +356,10 @@ export default function TopNav() {
                 )}
                 <button
                   type="button"
-                  className="top-nav__button"
+                  className="top-nav__button top-nav__button--quiet"
                   onClick={handleLogout}
                 >
-                  Log out
+                  Sign out
                 </button>
               </>
             ) : (

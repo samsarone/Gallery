@@ -46,5 +46,7 @@ export interface AuthenticatedUser {
   _id?: string;
   username?: string;
   email?: string;
+  displayName?: string;
+  isAdminUser?: boolean;
   [key: string]: unknown;
 }

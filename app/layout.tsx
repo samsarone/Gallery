@@ -2,10 +2,10 @@ import type { Metadata } from 'next';
 import './globals.css';
 import TopNav from '@/components/TopNav';
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-const metadataBase = siteUrl ? new URL(siteUrl) : undefined;
-const ogTitle = 'SamsarOne T2V Gallery';
-const ogDescription = 'Explore creations made public by the creators.';
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://gallery.samsar.one';
+const metadataBase = new URL(siteUrl);
+const ogTitle = 'Samsar Gallery — Stories worth watching';
+const ogDescription = 'Explore films, ideas, and impossible worlds created by the Samsar community.';
 
 export const metadata: Metadata = {
   metadataBase,
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
         url: '/splash.jpg',
         width: 1200,
         height: 630,
-        alt: 'SamsarOne T2V Gallery splash image'
+        alt: 'Samsar Gallery'
       }
     ]
   },
