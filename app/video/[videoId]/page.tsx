@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { fetchPublicVideo } from '@/lib/publicVideo';
 import { getSiteUrl, getVideoPagePath } from '@/lib/site';
 import { formatCompactNumber, formatPublishedDate, isPortraitVideo } from '@/lib/videos';
+import VideoPageMobileNav from '@/components/VideoPageMobileNav';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -102,6 +103,7 @@ export default async function VideoPage({ params }: VideoPageProps) {
 
         <article className="video-page__card">
           <div className={`video-page__media${portrait ? ' video-page__media--portrait' : ''}`}>
+            <VideoPageMobileNav />
             <video
               controls
               playsInline

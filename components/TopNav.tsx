@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import type { Route } from 'next';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   type FormEvent,
   useCallback,
@@ -51,6 +51,7 @@ const resolveDisplayName = (user: AuthenticatedUser | null): string | null => {
 };
 
 export default function TopNav() {
+  const pathname = usePathname();
   const router = useRouter();
   const navRef = useRef<HTMLElement | null>(null);
   const searchRef = useRef<HTMLFormElement | null>(null);
@@ -65,6 +66,7 @@ export default function TopNav() {
   const [searchMatches, setSearchMatches] = useState<PublishedVideo[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
+  const isVideoPage = pathname.startsWith('/video/');
 
   const performAuthCheck = useCallback(async () => {
     const token = getExistingAuthToken();
@@ -409,7 +411,10 @@ export default function TopNav() {
 
   return (
     <>
-      <nav className="top-nav" ref={navRef}>
+      <nav
+        className={`top-nav${isVideoPage ? ' top-nav--video-page' : ''}`}
+        ref={navRef}
+      >
         <div className="top-nav__container">
           <Link className="top-nav__brand" href="/" aria-label="Samsar Gallery home">
             <span className="top-nav__brand-lockup">
