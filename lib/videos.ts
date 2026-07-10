@@ -19,6 +19,14 @@ const numberValue = (value: unknown): number => {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 };
 
+export const getSessionPosterUrl = (sessionId?: string | null): string | undefined => {
+  if (!sessionId) {
+    return undefined;
+  }
+
+  return `https://api.samsar.one/video/splash/${encodeURIComponent(sessionId)}/splash.png`;
+};
+
 export const normalizeVideo = (value: unknown): PublishedVideo | null => {
   if (!isRecord(value)) {
     return null;
@@ -26,6 +34,8 @@ export const normalizeVideo = (value: unknown): PublishedVideo | null => {
 
   const id = stringValue(value.id) ?? stringValue(value._id);
   const videoUrl = stringValue(value.videoUrl) ?? stringValue(value.video_url);
+  const sessionId =
+    stringValue(value.sessionId) ?? stringValue(value.session_id) ?? null;
 
   if (!id || !videoUrl) {
     return null;
@@ -53,7 +63,8 @@ export const normalizeVideo = (value: unknown): PublishedVideo | null => {
       stringValue(value.splashImage) ??
       stringValue(value.splash_image) ??
       stringValue(value.thumbnailUrl) ??
-      stringValue(value.thumbnail),
+      stringValue(value.thumbnail) ??
+      getSessionPosterUrl(sessionId),
     title: stringValue(value.title) ?? 'Untitled video',
     description: stringValue(value.description) ?? '',
     aspectRatio:
@@ -66,8 +77,7 @@ export const normalizeVideo = (value: unknown): PublishedVideo | null => {
     creatorHandle:
       stringValue(value.creatorHandle) ?? stringValue(value.creator_handle),
     createdBy: stringValue(value.createdBy) ?? null,
-    sessionId:
-      stringValue(value.sessionId) ?? stringValue(value.session_id) ?? null,
+    sessionId,
     createdAt:
       stringValue(value.createdAt) ?? stringValue(value.created_at) ?? null,
     stats,

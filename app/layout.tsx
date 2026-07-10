@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import TopNav from '@/components/TopNav';
+import { getSiteUrl } from '@/lib/site';
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://gallery.samsar.one';
+const siteUrl = getSiteUrl();
 const metadataBase = new URL(siteUrl);
 const ogTitle = 'Samsar Gallery — Discover videos';
 const ogDescription = 'Discover popular and personalized videos created by the Samsar community.';

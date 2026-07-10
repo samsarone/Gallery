@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminRequest } from '@/lib/serverAdmin';
 import { SAMSAR_API_SERVER } from '@/lib/config';
+import { getSessionPosterUrl } from '@/lib/videos';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -88,9 +89,10 @@ const buildUpstreamBody = (body: PublicationInput, sessionId: string) => ({
   ...(typeof body.aspectRatio === 'string'
     ? { aspect_ratio: body.aspectRatio.trim() }
     : {}),
-  ...(typeof body.splashImage === 'string'
-    ? { splash_image: body.splashImage.trim() }
-    : {}),
+  splash_image:
+    typeof body.splashImage === 'string' && body.splashImage.trim().length > 0
+      ? body.splashImage.trim()
+      : getSessionPosterUrl(sessionId),
   ...(typeof body.originalPrompt === 'string'
     ? { original_prompt: body.originalPrompt.trim() }
     : {})

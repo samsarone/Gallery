@@ -83,9 +83,7 @@ const openAuth = () => {
 };
 
 const getShareUrl = (video: PublishedVideo) => {
-  const url = new URL(window.location.href);
-  url.searchParams.set('videoId', video.id);
-  return url.toString();
+  return new URL(`/video/${encodeURIComponent(video.id)}`, window.location.origin).toString();
 };
 
 const mediaCreator = (video: PublishedVideo) =>
