@@ -303,47 +303,6 @@ function PortraitFeatureCard({
   );
 }
 
-function FeaturedHero({
-  video,
-  onOpen,
-  onMetadata,
-  onUnavailable
-}: {
-  video: PublishedVideo;
-  onOpen: (video: PublishedVideo) => void;
-  onMetadata: (video: PublishedVideo, element: HTMLVideoElement) => void;
-  onUnavailable: (id: string) => void;
-}) {
-  return (
-    <article className="featured-video">
-      <button
-        aria-label={`Play ${video.title}`}
-        className="featured-video__media"
-        onClick={() => onOpen(video)}
-        type="button"
-      >
-        <PreviewVideo
-          onMetadata={onMetadata}
-          onUnavailable={onUnavailable}
-          video={video}
-        />
-        <span className="featured-video__scrim" />
-        <span className="featured-video__label">Featured</span>
-        <span className="featured-video__watch"><Icon name="play" size={16} /> Play</span>
-      </button>
-      <div className="featured-video__content">
-        <span className="featured-video__creator">{mediaCreator(video)}</span>
-        <h2>{video.title}</h2>
-        <p>{video.description || video.originalPrompt || 'Discover this featured story from the Samsar community.'}</p>
-        <div className="featured-video__footer">
-          <span>{formatCompactNumber(video.stats.views)} views</span>
-          <span>{formatPublishedDate(video.createdAt)}</span>
-        </div>
-      </div>
-    </article>
-  );
-}
-
 function MobileBrowseCard({
   video,
   format,
@@ -533,7 +492,6 @@ export default function VideoGallery({
   const [searchResults, setSearchResults] = useState<PublishedVideo[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [homeRecommendations, setHomeRecommendations] = useState<PublishedVideo[]>([]);
-  const [homeRecommendationReason, setHomeRecommendationReason] = useState('popular_now');
   const [selectedRecommendations, setSelectedRecommendations] = useState<PublishedVideo[]>([]);
   const [recommendationsLoading, setRecommendationsLoading] = useState(false);
   const [mobileQueue, setMobileQueue] = useState<PublishedVideo[]>([]);
@@ -679,7 +637,6 @@ export default function VideoGallery({
         if (!response.ok) return;
         const payload = await response.json();
         setHomeRecommendations(parseVideoCollection(payload).items);
-        if (typeof payload?.reason === 'string') setHomeRecommendationReason(payload.reason);
       } catch {
         // The standard gallery remains available while recommendations are warming up.
       }
@@ -746,9 +703,8 @@ export default function VideoGallery({
     () => rankedVideos.filter((video) => !isPortraitVideo(video)),
     [rankedVideos]
   );
-  const featuredVideos = rankedVideos.slice(0, 12);
-  const featuredPortraitVideos = featuredVideos.filter(isPortraitVideo).slice(0, 8);
-  const featuredLandscapeVideo = landscapeVideos[0] ?? null;
+  const featuredLandscapeVideos = landscapeVideos.slice(0, 4);
+  const featuredPortraitVideos = portraitVideos.slice(0, 8);
   const categorySections = useMemo(() => {
     const categories = new Map<
       string,
@@ -1138,9 +1094,7 @@ export default function VideoGallery({
       {searchMode && !mobilePlaybackMode && (
         <div className="search-results-page">
           <header className="search-results-header">
-            <span>Semantic search</span>
-            <h1>{query.trim() ? `Results for “${query.trim()}”` : 'Search the video library'}</h1>
-            <p>Closest matches appear first, followed by relevant recommendations.</p>
+            <h1>{query.trim() ? `Search results for “${query.trim()}”` : 'Search'}</h1>
           </header>
 
           {!query.trim() ? (
@@ -1150,21 +1104,14 @@ export default function VideoGallery({
           ) : searchedVideos.length === 0 && !searchLoading ? (
             <div className="library-state library-state--inline">
               <h2>No videos match “{query}”</h2>
-              <p>Try another title, topic, creator, or description.</p>
+              <p>Try a different search.</p>
             </div>
           ) : (
             <>
-              {searchLoading && <div className="search-results-loading">Refining matches…</div>}
+              {searchLoading && <div className="search-results-loading">Searching…</div>}
 
               {(landscapeVideos.length > 0 || portraitVideos.length > 0) && (
-                <section className="search-results-section" aria-labelledby="search-results-title">
-                  <div className="section-heading">
-                    <div>
-                      <span>Recommended for your search</span>
-                      <h2 id="search-results-title">Top results</h2>
-                    </div>
-                    <p>{searchedVideos.length} results</p>
-                  </div>
+                <section className="search-results-section" aria-label="Search results">
                   {landscapeVideos.length > 0 && (
                     <div className="landscape-grid search-landscape-grid">
                       {landscapeVideos.map((video) => (
@@ -1203,13 +1150,6 @@ export default function VideoGallery({
       )}
 
       {!searchMode && !isMobile && <div className="desktop-library">
-        <header className="library-toolbar">
-          <div>
-            <span>{query ? 'Matching your search' : homeRecommendationReason === 'based_on_watch_history' ? 'Based on your watch history' : 'Most popular now'}</span>
-            <h1>{query ? 'Search results' : 'Featured'}</h1>
-          </div>
-        </header>
-
         {searchedVideos.length === 0 ? (
           <div className="library-state library-state--inline">
             <h2>No videos match “{query}”</h2>
@@ -1218,22 +1158,26 @@ export default function VideoGallery({
           </div>
         ) : (
           <>
-            {featuredVideos.length > 0 && (
-              <section className="featured-portrait-section" aria-labelledby="featured-portrait-title">
-                <div className="section-heading">
-                  <div>
-                    <span>{homeRecommendationReason === 'based_on_watch_history' ? 'Picked for you' : 'Popular now'}</span>
-                    <h2 id="featured-portrait-title">Featured</h2>
-                  </div>
-                  <p>{homeRecommendationReason === 'based_on_watch_history' ? 'Ordered for your interests' : 'Ordered by global popularity'}</p>
+            {(featuredLandscapeVideos.length > 0 || featuredPortraitVideos.length > 0) && (
+              <section className="featured-portrait-section" aria-labelledby="featured-title">
+                <div className="section-heading section-heading--primary">
+                  <h1 id="featured-title">Featured</h1>
                 </div>
-                {featuredLandscapeVideo && (
-                  <FeaturedHero
-                    onMetadata={updateInferredAspectRatio}
-                    onOpen={openVideo}
-                    onUnavailable={markVideoUnavailable}
-                    video={featuredLandscapeVideo}
-                  />
+                {featuredLandscapeVideos.length > 0 && (
+                  <div className="landscape-grid featured-landscape-grid">
+                    {featuredLandscapeVideos.map((video) => (
+                      <LandscapeCard
+                        key={video.id}
+                        liking={likingIds.has(video.id)}
+                        onLike={toggleLike}
+                        onMetadata={updateInferredAspectRatio}
+                        onOpen={openVideo}
+                        onShare={shareVideo}
+                        onUnavailable={markVideoUnavailable}
+                        video={video}
+                      />
+                    ))}
+                  </div>
                 )}
                 {featuredPortraitVideos.length > 0 && (
                   <div className="featured-portrait-grid aspect-row--spaced">
@@ -1254,11 +1198,7 @@ export default function VideoGallery({
 
             <section className="library-section" id="popular" aria-labelledby="popular-landscape-title">
               <div className="section-heading">
-                <div>
-                  <span>{query ? 'More matches' : 'Watch next'}</span>
-                  <h2 id="popular-landscape-title">{query ? 'Results' : 'Popular'}</h2>
-                </div>
-                <p>{rankedVideos.length} videos</p>
+                <h2 id="popular-landscape-title">Popular</h2>
               </div>
               {landscapeVideos.length > 0 && (
                 <div className="landscape-grid">
@@ -1309,11 +1249,7 @@ export default function VideoGallery({
                 key={category.key}
               >
                 <div className="section-heading">
-                  <div>
-                    <span>Explore by topic</span>
-                    <h2 id={`category-title-${categoryIndex}`}>{category.name}</h2>
-                  </div>
-                  <p>{category.videos.length} videos</p>
+                  <h2 id={`category-title-${categoryIndex}`}>{category.name}</h2>
                 </div>
                 {category.landscape.length > 0 && (
                   <div className="landscape-grid category-landscape-grid">
@@ -1354,10 +1290,7 @@ export default function VideoGallery({
       {!searchMode && isMobile && !mobilePlaybackMode && (
         <section className="mobile-browse" aria-label="Samsar video library">
           <header className="mobile-browse__header">
-            <div>
-              <span>{homeRecommendationReason === 'based_on_watch_history' ? 'Picked for you' : 'Popular now'}</span>
-              <h1>Discover videos</h1>
-            </div>
+            <h1>Discover</h1>
           </header>
 
           {rankedVideos.length === 0 ? (
@@ -1384,7 +1317,6 @@ export default function VideoGallery({
                 <section className="mobile-browse__section" aria-labelledby="mobile-featured-title">
                   <div className="mobile-browse__section-heading">
                     <h2 id="mobile-featured-title">Featured</h2>
-                    <span>Tap to watch</span>
                   </div>
                   <div className="mobile-browse__portrait-grid">
                     {mobilePortraitGrid.map((video) => (
@@ -1405,7 +1337,6 @@ export default function VideoGallery({
                 <section className="mobile-browse__section" aria-labelledby="mobile-landscape-title">
                   <div className="mobile-browse__section-heading">
                     <h2 id="mobile-landscape-title">More to watch</h2>
-                    <span>Recommended for this session</span>
                   </div>
                   <div className="mobile-browse__landscape-stack">
                     {mobileRemainingLandscape.map((video) => (
