@@ -110,6 +110,20 @@ const sortByPopularity = (collection: PublishedVideo[]) =>
     return new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
   });
 
+const GENERIC_CATEGORY_TAGS = new Set(['ai', 'samsar', 'video', 'videos']);
+
+const formatCategoryName = (tag: string) =>
+  tag
+    .replace(/[-_]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) =>
+      word.length <= 3 && word === word.toUpperCase()
+        ? word
+        : `${word.charAt(0).toUpperCase()}${word.slice(1)}`
+    )
+    .join(' ');
+
 function PreviewVideo({
   video,
   onMetadata,
@@ -285,6 +299,47 @@ function PortraitFeatureCard({
           <small>{mediaCreator(video)} · {formatCompactNumber(video.stats.views)} views</small>
         </span>
       </button>
+    </article>
+  );
+}
+
+function FeaturedHero({
+  video,
+  onOpen,
+  onMetadata,
+  onUnavailable
+}: {
+  video: PublishedVideo;
+  onOpen: (video: PublishedVideo) => void;
+  onMetadata: (video: PublishedVideo, element: HTMLVideoElement) => void;
+  onUnavailable: (id: string) => void;
+}) {
+  return (
+    <article className="featured-video">
+      <button
+        aria-label={`Play ${video.title}`}
+        className="featured-video__media"
+        onClick={() => onOpen(video)}
+        type="button"
+      >
+        <PreviewVideo
+          onMetadata={onMetadata}
+          onUnavailable={onUnavailable}
+          video={video}
+        />
+        <span className="featured-video__scrim" />
+        <span className="featured-video__label">Featured</span>
+        <span className="featured-video__watch"><Icon name="play" size={16} /> Play</span>
+      </button>
+      <div className="featured-video__content">
+        <span className="featured-video__creator">{mediaCreator(video)}</span>
+        <h2>{video.title}</h2>
+        <p>{video.description || video.originalPrompt || 'Discover this featured story from the Samsar community.'}</p>
+        <div className="featured-video__footer">
+          <span>{formatCompactNumber(video.stats.views)} views</span>
+          <span>{formatPublishedDate(video.createdAt)}</span>
+        </div>
+      </div>
     </article>
   );
 }
@@ -691,9 +746,67 @@ export default function VideoGallery({
     () => rankedVideos.filter((video) => !isPortraitVideo(video)),
     [rankedVideos]
   );
-  const featuredPortraitVideos = portraitVideos.slice(0, 8);
-  const desktopLandscapeVideos = landscapeVideos.length > 0 ? landscapeVideos : rankedVideos;
-  const landscapeGridVideos = desktopLandscapeVideos;
+  const featuredVideos = rankedVideos.slice(0, 12);
+  const featuredPortraitVideos = featuredVideos.filter(isPortraitVideo).slice(0, 8);
+  const featuredLandscapeVideo = landscapeVideos[0] ?? null;
+  const categorySections = useMemo(() => {
+    const categories = new Map<
+      string,
+      { name: string; videos: PublishedVideo[]; firstRank: number }
+    >();
+
+    rankedVideos.forEach((video, rank) => {
+      const videoTags = Array.from(
+        new Set(
+          (video.tags ?? [])
+            .map((tag) => tag.trim())
+            .filter((tag) => tag.length > 1 && tag.length <= 48)
+            .map((tag) => tag.toLowerCase())
+        )
+      ).slice(0, 8);
+
+      videoTags.forEach((tag) => {
+        const existing = categories.get(tag);
+        if (existing) {
+          existing.videos.push(video);
+          return;
+        }
+        categories.set(tag, {
+          name: formatCategoryName(tag),
+          videos: [video],
+          firstRank: rank
+        });
+      });
+    });
+
+    const sorted = Array.from(categories.entries())
+      .map(([key, category]) => ({ key, ...category }))
+      .sort(
+        (left, right) =>
+          right.videos.length - left.videos.length || left.firstRank - right.firstRank
+      );
+    const preferred = sorted.filter(
+      (category) =>
+        category.videos.length >= 3 && !GENERIC_CATEGORY_TAGS.has(category.key)
+    );
+    const supporting = sorted.filter(
+      (category) =>
+        category.videos.length >= 2 &&
+        !GENERIC_CATEGORY_TAGS.has(category.key) &&
+        !preferred.some((preferredCategory) => preferredCategory.key === category.key)
+    );
+    const selected = preferred.length >= 3
+      ? preferred
+      : [...preferred, ...supporting];
+
+    return (selected.length > 0 ? selected : sorted).slice(0, 6).map((category) => ({
+      ...category,
+      landscape: category.videos
+        .filter((video) => !isPortraitVideo(video))
+        .slice(0, 4),
+      portrait: category.videos.filter(isPortraitVideo).slice(0, 8)
+    }));
+  }, [rankedVideos]);
   const mobileLeadLandscape = landscapeVideos.slice(0, 2);
   const mobilePortraitGrid = portraitVideos.slice(0, 6);
   const mobileRemainingLandscape = landscapeVideos.slice(2);
@@ -1093,7 +1206,7 @@ export default function VideoGallery({
         <header className="library-toolbar">
           <div>
             <span>{query ? 'Matching your search' : homeRecommendationReason === 'based_on_watch_history' ? 'Based on your watch history' : 'Most popular now'}</span>
-            <h1>{query ? 'Search results' : 'Featured videos'}</h1>
+            <h1>{query ? 'Search results' : 'Featured'}</h1>
           </div>
         </header>
 
@@ -1105,17 +1218,67 @@ export default function VideoGallery({
           </div>
         ) : (
           <>
-            {featuredPortraitVideos.length > 0 && (
+            {featuredVideos.length > 0 && (
               <section className="featured-portrait-section" aria-labelledby="featured-portrait-title">
                 <div className="section-heading">
                   <div>
                     <span>{homeRecommendationReason === 'based_on_watch_history' ? 'Picked for you' : 'Popular now'}</span>
-                    <h2 id="featured-portrait-title">Featured videos</h2>
+                    <h2 id="featured-portrait-title">Featured</h2>
                   </div>
                   <p>{homeRecommendationReason === 'based_on_watch_history' ? 'Ordered for your interests' : 'Ordered by global popularity'}</p>
                 </div>
-                <div className="featured-portrait-grid">
-                  {featuredPortraitVideos.map((video, index) => (
+                {featuredLandscapeVideo && (
+                  <FeaturedHero
+                    onMetadata={updateInferredAspectRatio}
+                    onOpen={openVideo}
+                    onUnavailable={markVideoUnavailable}
+                    video={featuredLandscapeVideo}
+                  />
+                )}
+                {featuredPortraitVideos.length > 0 && (
+                  <div className="featured-portrait-grid aspect-row--spaced">
+                    {featuredPortraitVideos.map((video, index) => (
+                      <PortraitFeatureCard
+                        key={video.id}
+                        onMetadata={updateInferredAspectRatio}
+                        onOpen={openVideo}
+                        onUnavailable={markVideoUnavailable}
+                        rank={index + 1}
+                        video={video}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
+            <section className="library-section" id="popular" aria-labelledby="popular-landscape-title">
+              <div className="section-heading">
+                <div>
+                  <span>{query ? 'More matches' : 'Watch next'}</span>
+                  <h2 id="popular-landscape-title">{query ? 'Results' : 'Popular'}</h2>
+                </div>
+                <p>{rankedVideos.length} videos</p>
+              </div>
+              {landscapeVideos.length > 0 && (
+                <div className="landscape-grid">
+                  {landscapeVideos.map((video) => (
+                    <LandscapeCard
+                      key={video.id}
+                      liking={likingIds.has(video.id)}
+                      onLike={toggleLike}
+                      onMetadata={updateInferredAspectRatio}
+                      onOpen={openVideo}
+                      onShare={shareVideo}
+                      onUnavailable={markVideoUnavailable}
+                      video={video}
+                    />
+                  ))}
+                </div>
+              )}
+              {portraitVideos.length > 0 && (
+                <div className="featured-portrait-grid aspect-row--spaced">
+                  {portraitVideos.slice(0, 8).map((video, index) => (
                     <PortraitFeatureCard
                       key={video.id}
                       onMetadata={updateInferredAspectRatio}
@@ -1126,33 +1289,7 @@ export default function VideoGallery({
                     />
                   ))}
                 </div>
-              </section>
-            )}
-
-            <section className="library-section" id="popular" aria-labelledby="popular-landscape-title">
-              <div className="section-heading">
-                <div>
-                  <span>{query ? 'More matches' : 'Watch next'}</span>
-                  <h2 id="popular-landscape-title">
-                    {query ? 'Video results' : homeRecommendationReason === 'based_on_watch_history' ? 'Recommended videos' : 'Popular videos'}
-                  </h2>
-                </div>
-                <p>{desktopLandscapeVideos.length} videos</p>
-              </div>
-              <div className="landscape-grid">
-                {landscapeGridVideos.map((video) => (
-                  <LandscapeCard
-                    key={video.id}
-                    liking={likingIds.has(video.id)}
-                    onLike={toggleLike}
-                    onMetadata={updateInferredAspectRatio}
-                    onOpen={openVideo}
-                    onShare={shareVideo}
-                    onUnavailable={markVideoUnavailable}
-                    video={video}
-                  />
-                ))}
-              </div>
+              )}
               {hasMore && (
                 <button
                   className="load-more-button"
@@ -1164,6 +1301,52 @@ export default function VideoGallery({
                 </button>
               )}
             </section>
+
+            {categorySections.map((category, categoryIndex) => (
+              <section
+                className="library-section category-section"
+                aria-labelledby={`category-title-${categoryIndex}`}
+                key={category.key}
+              >
+                <div className="section-heading">
+                  <div>
+                    <span>Explore by topic</span>
+                    <h2 id={`category-title-${categoryIndex}`}>{category.name}</h2>
+                  </div>
+                  <p>{category.videos.length} videos</p>
+                </div>
+                {category.landscape.length > 0 && (
+                  <div className="landscape-grid category-landscape-grid">
+                    {category.landscape.map((video) => (
+                      <LandscapeCard
+                        key={video.id}
+                        liking={likingIds.has(video.id)}
+                        onLike={toggleLike}
+                        onMetadata={updateInferredAspectRatio}
+                        onOpen={openVideo}
+                        onShare={shareVideo}
+                        onUnavailable={markVideoUnavailable}
+                        video={video}
+                      />
+                    ))}
+                  </div>
+                )}
+                {category.portrait.length > 0 && (
+                  <div className="featured-portrait-grid category-portrait-grid aspect-row--spaced">
+                    {category.portrait.map((video, index) => (
+                      <PortraitFeatureCard
+                        key={video.id}
+                        onMetadata={updateInferredAspectRatio}
+                        onOpen={openVideo}
+                        onUnavailable={markVideoUnavailable}
+                        rank={index + 1}
+                        video={video}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            ))}
           </>
         )}
       </div>}
@@ -1200,7 +1383,7 @@ export default function VideoGallery({
               {mobilePortraitGrid.length > 0 && (
                 <section className="mobile-browse__section" aria-labelledby="mobile-featured-title">
                   <div className="mobile-browse__section-heading">
-                    <h2 id="mobile-featured-title">Featured videos</h2>
+                    <h2 id="mobile-featured-title">Featured</h2>
                     <span>Tap to watch</span>
                   </div>
                   <div className="mobile-browse__portrait-grid">

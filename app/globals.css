@@ -553,6 +553,24 @@ a {
   grid-template-columns: repeat(8, minmax(0, 1fr));
 }
 
+.landscape-grid + .aspect-row--spaced {
+  margin-top: 46px;
+}
+
+.featured-video + .aspect-row--spaced {
+  margin-top: 46px;
+}
+
+.category-section {
+  border-top: 1px solid var(--line);
+  margin-top: 84px;
+  padding-top: 52px;
+}
+
+.category-section .section-heading h2 {
+  font-size: 32px;
+}
+
 .portrait-feature-card {
   aspect-ratio: 9 / 16;
   min-width: 0;
