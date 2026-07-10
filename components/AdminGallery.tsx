@@ -314,6 +314,7 @@ export default function AdminGallery() {
               {isPortraitVideo(video) ? 'Short' : 'Landscape'}
             </span>
             <div className="admin-engagement">
+              <span>▶ {formatCompactNumber(video.stats.views)}</span>
               <span>♥ {formatCompactNumber(video.stats.likes)}</span>
               <span>◯ {formatCompactNumber(video.stats.comments)}</span>
             </div>

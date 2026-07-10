@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import type { AuthenticatedUser } from './types';
+import { SAMSAR_API_SERVER } from './config';
 
 export const getRequestAuthToken = (request: NextRequest): string | null => {
   const cookieToken = request.cookies.get('authToken')?.value;
@@ -21,14 +22,9 @@ export const verifyAdminRequest = async (
     return { ok: false, status: 401, message: 'Authentication required.' };
   }
 
-  const apiServer = process.env.API_SERVER;
-  if (!apiServer) {
-    return { ok: false, status: 403, message: 'Admin access is unavailable.' };
-  }
-
   try {
     const response = await fetch(
-      `${apiServer.replace(/\/$/, '')}/users/verify_token?authToken=${encodeURIComponent(token)}`,
+      `${SAMSAR_API_SERVER}/users/verify_token?authToken=${encodeURIComponent(token)}`,
       { cache: 'no-store' }
     );
     if (!response.ok) {

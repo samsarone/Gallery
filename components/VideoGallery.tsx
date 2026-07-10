@@ -77,6 +77,12 @@ const getShareUrl = (video: PublishedVideo) => {
 const mediaCreator = (video: PublishedVideo) =>
   video.creatorHandle ? `@${video.creatorHandle}` : 'Samsar creator';
 
+const mergeUniqueVideos = (...collections: PublishedVideo[][]): PublishedVideo[] => {
+  const map = new Map<string, PublishedVideo>();
+  collections.flat().forEach((video) => map.set(video.id, video));
+  return Array.from(map.values());
+};
+
 function PreviewVideo({
   video,
   onMetadata,
@@ -203,6 +209,8 @@ function LandscapeCard({
         <div className="landscape-card__subline">
           <span>{mediaCreator(video)}</span>
           <span aria-hidden="true">•</span>
+          <span>{formatCompactNumber(video.stats.views)} views</span>
+          <span aria-hidden="true">•</span>
           <span>{formatPublishedDate(video.createdAt)}</span>
         </div>
         <VideoActions
@@ -220,10 +228,33 @@ function LandscapeCard({
 interface VideoDialogProps extends VideoActionsProps {
   open: boolean;
   onClose: () => void;
+  onOpen: (video: PublishedVideo) => void;
   onUnavailable: (id: string) => void;
+  onViewEvent: (
+    video: PublishedVideo,
+    eventType: 'view' | 'progress' | 'complete',
+    watchTimeMs: number,
+    durationMs: number
+  ) => void;
+  recommendations: PublishedVideo[];
+  recommendationsLoading: boolean;
 }
 
-function VideoDialog({ open, onClose, onUnavailable, video, liking, onLike, onShare }: VideoDialogProps) {
+function VideoDialog({
+  open,
+  onClose,
+  onOpen,
+  onUnavailable,
+  onViewEvent,
+  video,
+  liking,
+  onLike,
+  onShare,
+  recommendations,
+  recommendationsLoading
+}: VideoDialogProps) {
+  const viewStartedRef = useRef(false);
+
   useEffect(() => {
     if (!open) return;
     document.body.classList.add('no-scroll');
@@ -237,6 +268,10 @@ function VideoDialog({ open, onClose, onUnavailable, video, liking, onLike, onSh
     };
   }, [onClose, open]);
 
+  useEffect(() => {
+    viewStartedRef.current = false;
+  }, [video.id]);
+
   if (!open) return null;
 
   return (
@@ -246,16 +281,84 @@ function VideoDialog({ open, onClose, onUnavailable, video, liking, onLike, onSh
         <button className="watch-dialog__close" onClick={onClose} type="button" aria-label="Close video">
           <Icon name="close" />
         </button>
-        <div className={`watch-dialog__media${isPortraitVideo(video) ? ' watch-dialog__media--portrait' : ''}`}>
-          <video autoPlay controls onError={() => onUnavailable(video.id)} playsInline poster={video.posterUrl} src={video.videoUrl} />
-        </div>
-        <div className="watch-dialog__details">
-          <div>
-            <span className="watch-dialog__creator">{mediaCreator(video)}</span>
-            <h2>{video.title}</h2>
-            {video.description && <p>{video.description}</p>}
+        <div className="watch-dialog__layout">
+          <div className="watch-dialog__main">
+            <div className={`watch-dialog__media${isPortraitVideo(video) ? ' watch-dialog__media--portrait' : ''}`}>
+              <video
+                autoPlay
+                controls
+                onEnded={(event) => {
+                  onViewEvent(
+                    video,
+                    'complete',
+                    event.currentTarget.duration * 1000,
+                    event.currentTarget.duration * 1000
+                  );
+                  if (recommendations[0]) onOpen(recommendations[0]);
+                }}
+                onError={() => onUnavailable(video.id)}
+                onPause={(event) => {
+                  if (event.currentTarget.currentTime >= 3 && !event.currentTarget.ended) {
+                    onViewEvent(
+                      video,
+                      'progress',
+                      event.currentTarget.currentTime * 1000,
+                      event.currentTarget.duration * 1000
+                    );
+                  }
+                }}
+                onPlaying={(event) => {
+                  if (viewStartedRef.current) return;
+                  viewStartedRef.current = true;
+                  onViewEvent(
+                    video,
+                    'view',
+                    event.currentTarget.currentTime * 1000,
+                    event.currentTarget.duration * 1000
+                  );
+                }}
+                playsInline
+                poster={video.posterUrl}
+                src={video.videoUrl}
+              />
+            </div>
+            <div className="watch-dialog__details">
+              <div>
+                <span className="watch-dialog__creator">{mediaCreator(video)}</span>
+                <h2>{video.title}</h2>
+                <div className="watch-dialog__views">
+                  {formatCompactNumber(video.stats.views)} views · {formatPublishedDate(video.createdAt)}
+                </div>
+                {video.description && <p>{video.description}</p>}
+              </div>
+              <VideoActions video={video} liking={liking} onLike={onLike} onShare={onShare} />
+            </div>
           </div>
-          <VideoActions video={video} liking={liking} onLike={onLike} onShare={onShare} />
+          <aside className="watch-dialog__recommendations" aria-label="Recommended videos">
+            <div className="watch-dialog__recommendations-heading">
+              <span>Up next</span>
+              <strong>Recommended</strong>
+            </div>
+            {recommendations.map((item) => (
+              <button key={item.id} onClick={() => onOpen(item)} type="button">
+                <span className="watch-dialog__recommendation-media">
+                  <video muted playsInline poster={item.posterUrl} preload="none" />
+                  <span><Icon name="play" size={14} /></span>
+                </span>
+                <span className="watch-dialog__recommendation-copy">
+                  <strong>{item.title}</strong>
+                  <small>{mediaCreator(item)}</small>
+                  <small>{formatCompactNumber(item.stats.views)} views</small>
+                </span>
+              </button>
+            ))}
+            {recommendationsLoading && (
+              <div className="watch-dialog__recommendations-loading">Finding the next stories…</div>
+            )}
+            {!recommendationsLoading && recommendations.length === 0 && (
+              <div className="watch-dialog__recommendations-empty">More recommendations are being prepared.</div>
+            )}
+          </aside>
         </div>
       </div>
     </div>
@@ -268,6 +371,13 @@ export default function VideoGallery() {
   const [selectedVideo, setSelectedVideo] = useState<PublishedVideo | null>(null);
   const [activeMobileId, setActiveMobileId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<PublishedVideo[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [homeRecommendations, setHomeRecommendations] = useState<PublishedVideo[]>([]);
+  const [homeRecommendationReason, setHomeRecommendationReason] = useState('popular_now');
+  const [selectedRecommendations, setSelectedRecommendations] = useState<PublishedVideo[]>([]);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
+  const [mobileQueue, setMobileQueue] = useState<PublishedVideo[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -279,6 +389,8 @@ export default function VideoGallery() {
   const [likingIds, setLikingIds] = useState<Set<string>>(new Set());
   const mobileItemRefs = useRef<Record<string, HTMLElement | null>>({});
   const mobileVideoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
+  const mobileViewStartedRef = useRef<Set<string>>(new Set());
+  const mobileProgressReportedRef = useRef<Set<string>>(new Set());
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((message: string) => {
@@ -354,10 +466,94 @@ export default function VideoGallery() {
     if (requested) setSelectedVideo(requested);
   }, [videos]);
 
+  useEffect(() => {
+    const normalizedQuery = query.trim();
+    if (normalizedQuery.length < 2) {
+      setSearchResults(null);
+      setSearchLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const params = new URLSearchParams({ q: normalizedQuery, limit: '36' });
+        const response = await fetch(`/api/gallery/search?${params.toString()}`, {
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error('Search unavailable');
+        setSearchResults(parseVideoCollection(await response.json()).items);
+      } catch (searchError) {
+        if (!(searchError instanceof DOMException && searchError.name === 'AbortError')) {
+          setSearchResults(null);
+        }
+      } finally {
+        if (!controller.signal.aborted) setSearchLoading(false);
+      }
+    }, 280);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [query]);
+
+  useEffect(() => {
+    if (isMobile) return;
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const response = await fetch('/api/gallery/recommendations?limit=8&format=landscape', {
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        if (!response.ok) return;
+        const payload = await response.json();
+        setHomeRecommendations(parseVideoCollection(payload).items);
+        if (typeof payload?.reason === 'string') setHomeRecommendationReason(payload.reason);
+      } catch {
+        // The standard gallery remains available while recommendations are warming up.
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (!selectedVideo) {
+      setSelectedRecommendations([]);
+      return;
+    }
+    const controller = new AbortController();
+    const load = async () => {
+      setRecommendationsLoading(true);
+      try {
+        const params = new URLSearchParams({ videoId: selectedVideo.id, limit: '14' });
+        const response = await fetch(`/api/gallery/recommendations?${params.toString()}`, {
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        if (!response.ok) return;
+        setSelectedRecommendations(parseVideoCollection(await response.json()).items);
+      } catch {
+        setSelectedRecommendations([]);
+      } finally {
+        if (!controller.signal.aborted) setRecommendationsLoading(false);
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [selectedVideo]);
+
   const searchedVideos = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     const availableVideos = videos.filter((video) => !unavailableVideoIds.has(video.id));
     if (!normalizedQuery) return availableVideos;
+    if (searchResults) {
+      return searchResults.filter((video) => !unavailableVideoIds.has(video.id));
+    }
     return availableVideos.filter((video) =>
       [video.title, video.description, video.creatorHandle, ...(video.tags ?? [])]
         .some(
@@ -365,7 +561,7 @@ export default function VideoGallery() {
             typeof value === 'string' && value.toLowerCase().includes(normalizedQuery)
         )
     );
-  }, [query, unavailableVideoIds, videos]);
+  }, [query, searchResults, unavailableVideoIds, videos]);
 
   const portraitVideos = useMemo(
     () => searchedVideos.filter(isPortraitVideo),
@@ -375,11 +571,66 @@ export default function VideoGallery() {
     () => searchedVideos.filter((video) => !isPortraitVideo(video)),
     [searchedVideos]
   );
-  const featuredVideo = landscapeVideos[0] ?? searchedVideos[0] ?? null;
+  // Legacy publications are often marked 9:16 even when no landscape catalogue exists.
+  // Keep the desktop library useful by presenting those videos in the 16:9 card treatment
+  // until true landscape publications are available; portrait playback remains uncropped.
+  const desktopLandscapeVideos = landscapeVideos.length > 0
+    ? landscapeVideos
+    : searchedVideos;
+  const featuredVideo = desktopLandscapeVideos[0] ?? null;
   const landscapeGridVideos = featuredVideo
-    ? landscapeVideos.filter((video) => video.id !== featuredVideo.id)
-    : landscapeVideos;
-  const mobileVideos = portraitVideos.length > 0 ? portraitVideos : searchedVideos;
+    ? desktopLandscapeVideos.filter((video) => video.id !== featuredVideo.id)
+    : desktopLandscapeVideos;
+  const baseMobileVideos = portraitVideos.length > 0 ? portraitVideos : searchedVideos;
+  const mobileVideos = (mobileQueue.length > 0 ? mobileQueue : baseMobileVideos)
+    .filter((video) => !unavailableVideoIds.has(video.id));
+  const visibleHomeRecommendations = homeRecommendations
+    .filter((video) => !unavailableVideoIds.has(video.id));
+  const visibleSelectedRecommendations = selectedRecommendations
+    .filter((video) => !unavailableVideoIds.has(video.id));
+
+  useEffect(() => {
+    if (!isMobile || baseMobileVideos.length === 0) return;
+    setMobileQueue((current) =>
+      current.length === 0
+        ? baseMobileVideos
+        : mergeUniqueVideos(current, baseMobileVideos)
+    );
+  }, [baseMobileVideos, isMobile]);
+
+  useEffect(() => {
+    if (!isMobile || !activeMobileId) return;
+    const controller = new AbortController();
+    const loadNext = async () => {
+      try {
+        const params = new URLSearchParams({
+          videoId: activeMobileId,
+          format: 'portrait',
+          limit: '12'
+        });
+        const response = await fetch(`/api/gallery/recommendations?${params.toString()}`, {
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        if (!response.ok) return;
+        const recommendations = parseVideoCollection(await response.json()).items;
+        if (recommendations.length === 0) return;
+        setMobileQueue((current) => {
+          const activeIndex = current.findIndex((video) => video.id === activeMobileId);
+          if (activeIndex < 0) return mergeUniqueVideos(current, recommendations);
+          return mergeUniqueVideos(
+            current.slice(0, activeIndex + 1),
+            recommendations,
+            current.slice(activeIndex + 1)
+          );
+        });
+      } catch {
+        // Continue through the publication feed when recommendations are unavailable.
+      }
+    };
+    void loadNext();
+    return () => controller.abort();
+  }, [activeMobileId, isMobile]);
 
   useEffect(() => {
     if (isMobile && !activeMobileId && mobileVideos[0]) {
@@ -441,6 +692,81 @@ export default function VideoGallery() {
       );
     },
     []
+  );
+
+  const sendViewEvent = useCallback(
+    (
+      video: PublishedVideo,
+      eventType: 'view' | 'progress' | 'complete',
+      watchTimeMs: number,
+      durationMs: number
+    ) => {
+      void fetch('/api/gallery/view', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          publicationId: video.id,
+          eventType,
+          watchTimeMs: Number.isFinite(watchTimeMs) ? Math.round(watchTimeMs) : 0,
+          durationMs: Number.isFinite(durationMs) ? Math.round(durationMs) : 0,
+          source: isMobile ? 'gallery_mobile' : 'gallery_desktop',
+          metadata: { format: isPortraitVideo(video) ? 'portrait' : 'landscape' }
+        }),
+        keepalive: true
+      })
+        .then(async (response) => {
+          if (!response.ok) return;
+          const payload = await response.json();
+          const views = payload?.stats?.views;
+          if (typeof views !== 'number') return;
+          setVideos((current) =>
+            current.map((item) =>
+              item.id === video.id
+                ? { ...item, stats: { ...item.stats, views } }
+                : item
+            )
+          );
+        })
+        .catch(() => undefined);
+    },
+    [isMobile]
+  );
+
+  const advanceMobileVideo = useCallback(
+    (video: PublishedVideo, element: HTMLVideoElement) => {
+      sendViewEvent(video, 'complete', element.duration * 1000, element.duration * 1000);
+      const currentIndex = mobileVideos.findIndex((item) => item.id === video.id);
+      const next = mobileVideos[currentIndex + 1];
+      if (!next) return;
+      setActiveMobileId(next.id);
+      mobileItemRefs.current[next.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+    [mobileVideos, sendViewEvent]
+  );
+
+  const handleMobilePlaying = useCallback(
+    (video: PublishedVideo, element: HTMLVideoElement) => {
+      if (mobileViewStartedRef.current.has(video.id)) return;
+      mobileViewStartedRef.current.add(video.id);
+      sendViewEvent(video, 'view', element.currentTime * 1000, element.duration * 1000);
+    },
+    [sendViewEvent]
+  );
+
+  const handleMobileProgress = useCallback(
+    (video: PublishedVideo, element: HTMLVideoElement) => {
+      if (
+        mobileProgressReportedRef.current.has(video.id) ||
+        !Number.isFinite(element.duration) ||
+        element.duration <= 0 ||
+        element.currentTime / element.duration < 0.5
+      ) {
+        return;
+      }
+      mobileProgressReportedRef.current.add(video.id);
+      sendViewEvent(video, 'progress', element.currentTime * 1000, element.duration * 1000);
+    },
+    [sendViewEvent]
   );
 
   const toggleLike = useCallback(async (id: string) => {
@@ -561,11 +887,13 @@ export default function VideoGallery() {
             <Icon name="search" size={19} />
             <span className="sr-only">Search the gallery</span>
             <input
+              aria-busy={searchLoading}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search videos and creators"
               type="search"
               value={query}
             />
+            {searchLoading && <span className="library-search__spinner" aria-hidden="true" />}
           </label>
         </header>
 
@@ -613,6 +941,34 @@ export default function VideoGallery() {
               </section>
             )}
 
+            {!query && visibleHomeRecommendations.length > 0 && (
+              <section className="library-section library-section--recommended" aria-labelledby="recommended-title">
+                <div className="section-heading">
+                  <div>
+                    <span>{homeRecommendationReason === 'based_on_watch_history' ? 'Based on your watch history' : 'Selected for you'}</span>
+                    <h2 id="recommended-title">
+                      {homeRecommendationReason === 'popular_now' ? 'Popular now' : 'Recommended for you'}
+                    </h2>
+                  </div>
+                  <p>Ranked by relevance, quality, and engagement</p>
+                </div>
+                <div className="landscape-grid landscape-grid--recommended">
+                  {visibleHomeRecommendations.map((video) => (
+                    <LandscapeCard
+                      key={`recommended-${video.id}`}
+                      liking={likingIds.has(video.id)}
+                      onLike={toggleLike}
+                      onMetadata={updateInferredAspectRatio}
+                      onOpen={openVideo}
+                      onShare={shareVideo}
+                      onUnavailable={markVideoUnavailable}
+                      video={video}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
             <section className="library-section shorts-section" id="shorts" aria-labelledby="shorts-title">
               <div className="section-heading">
                 <div>
@@ -652,7 +1008,7 @@ export default function VideoGallery() {
                   <span>Keep exploring</span>
                   <h2 id="latest-title">Latest videos</h2>
                 </div>
-                <p>{landscapeVideos.length} landscape stories</p>
+                <p>{desktopLandscapeVideos.length} videos</p>
               </div>
               <div className="landscape-grid">
                 {landscapeGridVideos.map((video) => (
@@ -698,10 +1054,12 @@ export default function VideoGallery() {
               ref={(element) => { mobileItemRefs.current[video.id] = element; }}
             >
               <video
-                loop
                 muted={muted || !isActive}
                 onLoadedMetadata={(event) => updateInferredAspectRatio(video, event.currentTarget)}
                 onError={() => markVideoUnavailable(video.id)}
+                onEnded={(event) => advanceMobileVideo(video, event.currentTarget)}
+                onPlaying={(event) => handleMobilePlaying(video, event.currentTarget)}
+                onTimeUpdate={(event) => handleMobileProgress(video, event.currentTarget)}
                 playsInline
                 poster={video.posterUrl}
                 preload={isActive ? 'auto' : 'metadata'}
@@ -755,9 +1113,13 @@ export default function VideoGallery() {
           liking={likingIds.has(selectedCurrent.id)}
           onClose={closeVideo}
           onLike={toggleLike}
+          onOpen={openVideo}
           onShare={shareVideo}
           onUnavailable={markVideoUnavailable}
+          onViewEvent={sendViewEvent}
           open
+          recommendations={visibleSelectedRecommendations}
+          recommendationsLoading={recommendationsLoading}
           video={selectedCurrent}
         />
       )}

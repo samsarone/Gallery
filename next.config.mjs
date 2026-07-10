@@ -3,9 +3,6 @@ const nextConfig = {
   reactStrictMode: true,
   experimental: {
     typedRoutes: true
-  },
-  env: {
-    API_SERVER: process.env.API_SERVER
   }
 };
 

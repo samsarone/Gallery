@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { normalizeComment, parseCommentsPayload } from '@/lib/comments';
 import { fetchPublicRead } from '@/lib/publicReadFetch';
 import type { VideoStats } from '@/lib/types';
-
-const apiServer = process.env.API_SERVER;
+import { SAMSAR_API_SERVER } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -71,6 +70,14 @@ const STAT_KEY_CANDIDATES: Record<
     'metrics.sharesCount',
     'interactions.shares',
     'engagement.shares'
+  ],
+  views: [
+    'views',
+    'viewsCount',
+    'views_count',
+    'metrics.views',
+    'interactions.views',
+    'engagement.views'
   ]
 };
 
@@ -133,13 +140,6 @@ export async function GET(
   request: NextRequest,
   context: { params: { videoId: string } }
 ) {
-  if (!apiServer) {
-    return NextResponse.json(
-      { error: 'API_SERVER environment variable is not configured.' },
-      { status: 500 }
-    );
-  }
-
   const { videoId } = context.params;
   if (!videoId) {
     return NextResponse.json({ error: 'Missing video id.' }, { status: 400 });
@@ -159,8 +159,7 @@ export async function GET(
     query.set('cursor', cursor);
   }
 
-  const apiBase = apiServer.replace(/\/$/, '');
-  const endpoint = `${apiBase}/publication/${encodeURIComponent(videoId)}/comments?${query.toString()}`;
+  const endpoint = `${SAMSAR_API_SERVER}/publication/${encodeURIComponent(videoId)}/comments?${query.toString()}`;
   const authToken = getAuthToken(request);
 
   try {
@@ -210,13 +209,6 @@ export async function POST(
   request: NextRequest,
   context: { params: { videoId: string } }
 ) {
-  if (!apiServer) {
-    return NextResponse.json(
-      { error: 'API_SERVER environment variable is not configured.' },
-      { status: 500 }
-    );
-  }
-
   const { videoId } = context.params;
   if (!videoId) {
     return NextResponse.json({ error: 'Missing video id.' }, { status: 400 });
@@ -243,8 +235,7 @@ export async function POST(
     return NextResponse.json({ error: 'Comment text is required.' }, { status: 400 });
   }
 
-  const apiBase = apiServer.replace(/\/$/, '');
-  const endpoint = `${apiBase}/publication/${encodeURIComponent(videoId)}/comments`;
+  const endpoint = `${SAMSAR_API_SERVER}/publication/${encodeURIComponent(videoId)}/comments`;
 
   try {
     const response = await fetch(endpoint, {

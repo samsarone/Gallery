@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminRequest } from '@/lib/serverAdmin';
+import { SAMSAR_API_SERVER } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -30,7 +31,6 @@ export async function GET(request: NextRequest) {
   const admin = await verifyAdminRequest(request);
   if (!admin.ok) return unauthorizedResponse(admin);
 
-  const apiServer = process.env.API_SERVER!;
   const sourceUrl = new URL(request.url);
   const params = new URLSearchParams({ limit: sourceUrl.searchParams.get('limit') ?? '100' });
   const cursor = sourceUrl.searchParams.get('cursor');
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const response = await fetch(
-      `${apiServer.replace(/\/$/, '')}/publication?${params.toString()}`,
+      `${SAMSAR_API_SERVER}/publication?${params.toString()}`,
       {
         cache: 'no-store',
         headers: { Authorization: `Bearer ${admin.token}` }
@@ -109,12 +109,10 @@ const mutatePublication = async (
     return NextResponse.json({ error: 'A video session ID is required.' }, { status: 400 });
   }
 
-  const apiServer = process.env.API_SERVER!;
-  const apiBase = apiServer.replace(/\/$/, '');
   const endpoint =
     method === 'POST'
-      ? `${apiBase}/publications/publish`
-      : `${apiBase}/publications/session/${encodeURIComponent(sessionId)}`;
+      ? `${SAMSAR_API_SERVER}/publications/publish`
+      : `${SAMSAR_API_SERVER}/publications/session/${encodeURIComponent(sessionId)}`;
 
   try {
     const response = await fetch(endpoint, {

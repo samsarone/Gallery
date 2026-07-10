@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchPublicRead } from '@/lib/publicReadFetch';
-
-const apiServer = process.env.API_SERVER;
+import { SAMSAR_API_SERVER } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -10,14 +9,6 @@ const DEFAULT_LIMIT = 24;
 const MAX_LIMIT = 100;
 
 export async function GET(request: NextRequest) {
-  if (!apiServer) {
-    return NextResponse.json(
-      { error: 'API_SERVER environment variable is not configured.' },
-      { status: 500 }
-    );
-  }
-
-  const apiBase = apiServer.replace(/\/$/, '');
   const url = new URL(request.url);
   const limitParam = Number.parseInt(url.searchParams.get('limit') ?? `${DEFAULT_LIMIT}`, 10);
   const limit = Number.isFinite(limitParam)
@@ -34,7 +25,7 @@ export async function GET(request: NextRequest) {
     upstreamParams.set('cursor', cursor);
   }
 
-  const endpoint = `${apiBase}/publication?${upstreamParams.toString()}`;
+  const endpoint = `${SAMSAR_API_SERVER}/publication?${upstreamParams.toString()}`;
 
   try {
     const response = await fetchPublicRead(endpoint, authToken);
@@ -101,7 +92,8 @@ export async function GET(request: NextRequest) {
         const stats = {
           likes: Number(statsSource?.likes ?? 0) || 0,
           comments: Number(statsSource?.comments ?? 0) || 0,
-          shares: Number(statsSource?.shares ?? 0) || 0
+          shares: Number(statsSource?.shares ?? 0) || 0,
+          views: Number(statsSource?.views ?? 0) || 0
         };
 
         const tagsSource = record.tags;

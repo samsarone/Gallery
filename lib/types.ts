@@ -2,6 +2,7 @@ export interface VideoStats {
   likes: number;
   comments: number;
   shares: number;
+  views: number;
 }
 
 export interface VideoComment {

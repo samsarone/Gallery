@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const apiServer = process.env.API_SERVER;
+import { SAMSAR_API_SERVER } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -9,13 +8,6 @@ export async function POST(
   request: NextRequest,
   context: { params: { videoId: string } }
 ) {
-  if (!apiServer) {
-    return NextResponse.json(
-      { error: 'API_SERVER environment variable is not configured.' },
-      { status: 500 }
-    );
-  }
-
   const { videoId } = context.params;
   if (!videoId) {
     return NextResponse.json({ error: 'Missing video id.' }, { status: 400 });
@@ -30,8 +22,7 @@ export async function POST(
     return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
   }
 
-  const apiBase = apiServer.replace(/\/$/, '');
-  const endpoint = `${apiBase}/publication/${encodeURIComponent(videoId)}/share`;
+  const endpoint = `${SAMSAR_API_SERVER}/publication/${encodeURIComponent(videoId)}/share`;
 
   try {
     const response = await fetch(endpoint, {

@@ -1,4 +1,5 @@
 import type { AuthenticatedUser } from './types';
+import { SAMSAR_API_SERVER } from './config';
 
 const TOKEN_KEY = 'authToken';
 const COOKIE_NAME = 'authToken';
@@ -195,13 +196,7 @@ export const verifyAuthToken = async (
     return null;
   }
 
-  const apiBase = process.env.API_SERVER;
-  if (!apiBase) {
-    console.warn('Missing API_SERVER environment variable.');
-    return null;
-  }
-
-  const endpoint = `${apiBase.replace(/\/$/, '')}/users/verify_token?authToken=${encodeURIComponent(
+  const endpoint = `${SAMSAR_API_SERVER}/users/verify_token?authToken=${encodeURIComponent(
     token
   )}`;
 

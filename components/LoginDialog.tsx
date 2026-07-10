@@ -9,6 +9,7 @@ import {
 } from 'react';
 import type { AuthenticatedUser } from '@/lib/types';
 import { persistAuthToken } from '@/lib/auth';
+import { SAMSAR_API_SERVER } from '@/lib/config';
 
 type AuthView = 'login' | 'register';
 
@@ -124,7 +125,7 @@ export default function LoginDialog({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const apiBase = process.env.API_SERVER;
+  const apiBase = SAMSAR_API_SERVER;
   const ageConfirmationLabel = useMemo(resolveAgeConfirmationLabel, []);
 
   useEffect(() => {
@@ -216,11 +217,7 @@ export default function LoginDialog({
   };
 
   const handleLoginSubmit = async () => {
-    if (!apiBase) {
-      throw new Error('Login is unavailable. Please try again later.');
-    }
-
-    const endpoint = `${apiBase.replace(/\/$/, '')}/users/login`;
+    const endpoint = `${apiBase}/users/login`;
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -259,10 +256,6 @@ export default function LoginDialog({
   };
 
   const handleRegisterSubmit = async () => {
-    if (!apiBase) {
-      throw new Error('Registration is unavailable. Please try again later.');
-    }
-
     const username = registerUsername.trim();
     const email = registerEmail.trim();
     const password = registerPassword;
@@ -281,7 +274,7 @@ export default function LoginDialog({
       throw new Error(gateError);
     }
 
-    const endpoint = `${apiBase.replace(/\/$/, '')}/users/register`;
+    const endpoint = `${apiBase}/users/register`;
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -332,15 +325,6 @@ export default function LoginDialog({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-
-    if (!apiBase) {
-      setError(
-        currentView === 'login'
-          ? 'Login is unavailable. Please try again later.'
-          : 'Registration is unavailable. Please try again later.'
-      );
-      return;
-    }
 
     onResetExternalError?.();
     setIsSubmitting(true);

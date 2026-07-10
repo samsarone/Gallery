@@ -15,6 +15,7 @@ import {
   getExistingAuthToken,
   verifyAuthToken
 } from '@/lib/auth';
+import { SAMSAR_API_SERVER } from '@/lib/config';
 
 const resolveDisplayName = (user: AuthenticatedUser | null): string | null => {
   if (!user || typeof user !== 'object') {
@@ -246,18 +247,12 @@ export default function TopNav() {
       return;
     }
 
-    const apiBase = process.env.API_SERVER;
-    if (!apiBase) {
-      setAuthError('Google sign-in is unavailable. Please try again later.');
-      return;
-    }
-
     setAuthError(null);
     setIsGoogleLoading(true);
 
     try {
       const url = new URL(
-        `${apiBase.replace(/\/$/, '')}/users/google_login`
+        `${SAMSAR_API_SERVER}/users/google_login`
       );
       url.searchParams.set('origin', window.location.origin);
       if (options?.subscribeToWeeklyNewsletter !== undefined) {

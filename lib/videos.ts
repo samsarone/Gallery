@@ -35,7 +35,8 @@ export const normalizeVideo = (value: unknown): PublishedVideo | null => {
   const stats: VideoStats = {
     likes: numberValue(statsSource.likes),
     comments: numberValue(statsSource.comments),
-    shares: numberValue(statsSource.shares)
+    shares: numberValue(statsSource.shares),
+    views: numberValue(statsSource.views)
   };
 
   const tags = Array.isArray(value.tags)

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchPublicRead } from '@/lib/publicReadFetch';
-
-const apiServer = process.env.API_SERVER;
+import { SAMSAR_API_SERVER } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -10,13 +9,6 @@ export async function GET(
   request: NextRequest,
   context: { params: { videoId: string } }
 ) {
-  if (!apiServer) {
-    return NextResponse.json(
-      { error: 'API_SERVER environment variable is not configured.' },
-      { status: 500 }
-    );
-  }
-
   const { videoId } = context.params;
   if (!videoId) {
     return NextResponse.json({ error: 'Missing video id.' }, { status: 400 });
@@ -27,8 +19,7 @@ export async function GET(
     request.headers.get('authorization')?.split('Bearer ')[1] ??
     undefined;
 
-  const apiBase = apiServer.replace(/\/$/, '');
-  const endpoint = `${apiBase}/publication/${encodeURIComponent(videoId)}/interactions`;
+  const endpoint = `${SAMSAR_API_SERVER}/publication/${encodeURIComponent(videoId)}/interactions`;
 
   try {
     const response = await fetchPublicRead(endpoint, authToken);
