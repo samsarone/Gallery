@@ -29,13 +29,13 @@ const client = new SamsarClient({
 });
 
 try {
-  const result = await client.postV2('gallery/sync', { force: false });
+  const result = await client.postV2('gallery/publications/update_embeddings', { force: false });
   const data = result.data || {};
   console.log(
     `[gallery-sync] ${data.status || 'complete'}: indexed ${data.indexed || 0}, skipped ${data.skipped || 0}.`,
   );
 } catch (error) {
-  // The secured hourly cron retries synchronization after deployment. Do not fail a frontend
-  // deployment because the processor is temporarily unavailable or deploying concurrently.
+  // The first Gallery request after the stale interval retries synchronization. Do not fail a
+  // frontend deployment because the processor is temporarily unavailable or deploying concurrently.
   console.warn(`[gallery-sync] Deployment sync deferred: ${error?.message || error}`);
 }

@@ -25,6 +25,12 @@ export interface GallerySyncResponse {
   indexed: number;
   skipped: number;
   failed: number;
+  refreshed?: boolean;
+  stale?: boolean;
+  scanned?: number;
+  removed?: number;
+  lastUpdatedAt?: string | null;
+  nextUpdateAt?: string | null;
   [key: string]: unknown;
 }
 
@@ -70,8 +76,11 @@ export const sendGalleryView = async (payload: Record<string, unknown>) => {
   return response.data;
 };
 
-export const syncGalleryEmbeddings = async (force = false): Promise<GallerySyncResponse> => {
-  const response = await getClient().postV2<GallerySyncResponse>('gallery/sync', { force });
+export const updateGalleryPublicationEmbeddings = async (): Promise<GallerySyncResponse> => {
+  const response = await getClient().postV2<GallerySyncResponse>(
+    'gallery/publications/update_embeddings',
+    { force: false }
+  );
   return response.data;
 };
 
