@@ -1463,6 +1463,17 @@ a {
   padding: 24px 28px 28px;
 }
 
+@media (min-width: 768px) {
+  .watch-dialog {
+    inset: var(--nav-height) 0 0;
+  }
+
+  .watch-dialog__panel,
+  .watch-dialog__layout {
+    max-height: calc(100dvh - var(--nav-height) - 56px);
+  }
+}
+
 .watch-dialog__creator {
   color: var(--muted);
   font-size: 11px;
@@ -2449,6 +2460,14 @@ a {
 
   .featured-portrait-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .category-landscape-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .category-portrait-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 
