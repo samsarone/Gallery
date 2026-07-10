@@ -141,22 +141,20 @@ a {
 }
 
 .video-page__body {
-  padding: 30px 34px 36px;
+  padding: 26px 30px 32px;
 }
 
 .video-page__eyebrow {
-  color: var(--accent-light);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .video-page__body h1 {
-  font-size: clamp(28px, 4vw, 52px);
-  letter-spacing: -0.055em;
-  line-height: 1.06;
-  margin: 10px 0 12px;
+  font-size: clamp(24px, 3vw, 38px);
+  letter-spacing: -0.045em;
+  line-height: 1.08;
+  margin: 7px 0 10px;
   max-width: 900px;
 }
 
@@ -170,9 +168,9 @@ a {
 
 .video-page__description {
   color: #d0cbc5;
-  font-size: 15px;
-  line-height: 1.75;
-  margin: 25px 0 0;
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 20px 0 0;
   max-width: 850px;
   white-space: pre-line;
 }
@@ -439,10 +437,11 @@ a {
 }
 
 .search-results-header h1 {
-  font-size: clamp(34px, 4vw, 54px);
-  font-weight: 600;
-  letter-spacing: -0.055em;
-  line-height: 1;
+  color: var(--muted);
+  font-size: clamp(18px, 2.4vw, 26px);
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
   margin: 0;
 }
 
@@ -552,8 +551,8 @@ a {
 
 .featured-portrait-grid {
   display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 18px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .landscape-grid + .aspect-row--spaced {
@@ -668,28 +667,25 @@ a {
 
 .library-section {
   border-top: 1px solid var(--line);
-  margin-top: 72px;
-  padding-top: 42px;
+  margin-top: 64px;
+  padding-top: 26px;
 }
 
 .section-heading {
-  align-items: flex-end;
+  align-items: center;
   display: flex;
   justify-content: space-between;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .section-heading h1,
 .section-heading h2 {
-  font-size: 28px;
+  color: var(--muted);
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: -0.04em;
-  line-height: 1;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
   margin: 0;
-}
-
-.section-heading--primary h1 {
-  font-size: clamp(32px, 3.2vw, 44px);
 }
 
 .shorts-carousel {
@@ -804,8 +800,8 @@ a {
 
 .landscape-grid {
   display: grid;
-  gap: 34px 18px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 36px 24px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .landscape-card {
@@ -1095,15 +1091,15 @@ a {
 }
 
 .watch-dialog__creator {
-  color: var(--accent-light);
+  color: var(--muted);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .watch-dialog__details h2 {
-  font-size: 24px;
-  letter-spacing: -0.035em;
-  margin: 7px 0 0;
+  font-size: 20px;
+  letter-spacing: -0.03em;
+  margin: 6px 0 0;
 }
 
 .watch-dialog__details p {
@@ -1127,23 +1123,14 @@ a {
 }
 
 .watch-dialog__recommendations-heading {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   margin: 0 2px 18px;
 }
 
-.watch-dialog__recommendations-heading span {
-  color: var(--accent-light);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
 .watch-dialog__recommendations-heading strong {
-  font-size: 18px;
-  letter-spacing: -0.03em;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .watch-dialog__recommendations > button {
@@ -2048,7 +2035,7 @@ a {
   }
 
   .featured-portrait-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .admin-list__header,
@@ -2179,7 +2166,7 @@ a {
   }
 
   .search-results-header h1 {
-    font-size: 29px;
+    font-size: 22px;
   }
 
   .search-results-section {
@@ -2200,19 +2187,7 @@ a {
     background: #080808;
     display: block;
     min-height: calc(100dvh - var(--nav-height));
-    padding: 20px 12px 76px;
-  }
-
-  .mobile-browse__header {
-    margin-bottom: 18px;
-  }
-
-  .mobile-browse__header h1 {
-    font-size: 30px;
-    font-weight: 600;
-    letter-spacing: -0.05em;
-    line-height: 1;
-    margin: 0;
+    padding: 16px 12px 76px;
   }
 
   .mobile-browse__search {
@@ -2239,8 +2214,10 @@ a {
   }
 
   .mobile-browse__section-heading h2 {
-    font-size: 20px;
-    letter-spacing: -0.035em;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
     margin: 0;
   }
 

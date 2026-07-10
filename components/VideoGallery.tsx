@@ -445,8 +445,7 @@ function VideoDialog({
           </div>
           <aside className="watch-dialog__recommendations" aria-label="Recommended videos">
             <div className="watch-dialog__recommendations-heading">
-              <span>Up next</span>
-              <strong>Recommended</strong>
+              <strong>More to watch</strong>
             </div>
             {recommendations.map((item) => (
               <button key={item.id} onClick={() => onOpen(item)} type="button">
@@ -704,12 +703,12 @@ export default function VideoGallery({
   const desktopHomeSections = useMemo(() => {
     const desktopLandscapeVideos = rankedVideos.filter((video) => !isPortraitVideo(video));
     const desktopPortraitVideos = rankedVideos.filter(isPortraitVideo);
-    const featured = desktopLandscapeVideos.slice(0, 4);
+    const featured = desktopLandscapeVideos.slice(0, 3);
     const featuredIds = new Set(featured.map((video) => video.id));
     const popularLandscape = desktopLandscapeVideos
       .filter((video) => !featuredIds.has(video.id))
-      .slice(0, 8);
-    const popularPortrait = desktopPortraitVideos.slice(0, 8);
+      .slice(0, 6);
+    const popularPortrait = desktopPortraitVideos.slice(0, 10);
     const claimedIds = new Set(
       [...featured, ...popularLandscape, ...popularPortrait].map((video) => video.id)
     );
@@ -773,8 +772,8 @@ export default function VideoGallery({
       const available = category.videos.filter((video) => !claimedIds.has(video.id));
       const categoryLandscape = available
         .filter((video) => !isPortraitVideo(video))
-        .slice(0, 4);
-      const categoryPortrait = available.filter(isPortraitVideo).slice(0, 8);
+        .slice(0, 3);
+      const categoryPortrait = available.filter(isPortraitVideo).slice(0, 5);
       const assigned = [...categoryLandscape, ...categoryPortrait];
       if (assigned.length < 2) continue;
 
@@ -1129,9 +1128,13 @@ export default function VideoGallery({
     <>
       {searchMode && !mobilePlaybackMode && (
         <div className="search-results-page">
-          <header className="search-results-header">
-            <h1>{query.trim() ? `Search results for “${query.trim()}”` : 'Search'}</h1>
-          </header>
+          {query.trim() ? (
+            <header className="search-results-header">
+              <h1>Results for “{query.trim()}”</h1>
+            </header>
+          ) : (
+            <h1 className="sr-only">Search videos</h1>
+          )}
 
           {!query.trim() ? (
             <div className="library-state library-state--inline">
@@ -1195,10 +1198,7 @@ export default function VideoGallery({
         ) : (
           <>
             {featuredLandscapeVideos.length > 0 && (
-              <section className="featured-section" aria-labelledby="featured-title">
-                <div className="section-heading section-heading--primary">
-                  <h1 id="featured-title">Featured</h1>
-                </div>
+              <section className="featured-section" aria-label="Featured videos">
                 <div className="landscape-grid featured-landscape-grid">
                   {featuredLandscapeVideos.map((video) => (
                     <LandscapeCard
@@ -1311,10 +1311,6 @@ export default function VideoGallery({
 
       {!searchMode && isMobile && !mobilePlaybackMode && (
         <section className="mobile-browse" aria-label="Samsar video library">
-          <header className="mobile-browse__header">
-            <h1>Discover</h1>
-          </header>
-
           {rankedVideos.length === 0 ? (
             <div className="library-state library-state--inline">
               <h2>No videos match “{query}”</h2>
@@ -1336,10 +1332,7 @@ export default function VideoGallery({
               </div>
 
               {mobilePortraitGrid.length > 0 && (
-                <section className="mobile-browse__section" aria-labelledby="mobile-featured-title">
-                  <div className="mobile-browse__section-heading">
-                    <h2 id="mobile-featured-title">Featured</h2>
-                  </div>
+                <section className="mobile-browse__section" aria-label="Featured videos">
                   <div className="mobile-browse__portrait-grid">
                     {mobilePortraitGrid.map((video) => (
                       <MobileBrowseCard

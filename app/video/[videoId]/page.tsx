@@ -97,9 +97,7 @@ export default async function VideoPage({ params }: VideoPageProps) {
       />
       <div className="video-page__shell">
         <div className="video-page__breadcrumb">
-          <Link href="/">Samsar Gallery</Link>
-          <span aria-hidden="true">/</span>
-          <span>Video</span>
+          <Link href="/">← Gallery</Link>
         </div>
 
         <article className="video-page__card">
