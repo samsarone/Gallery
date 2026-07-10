@@ -208,7 +208,7 @@ a {
   border-radius: 13px;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.58);
   left: 0;
-  max-height: min(72vh, 620px);
+  max-height: min(62vh, 360px);
   overflow-y: auto;
   padding: 7px;
   position: absolute;
@@ -224,101 +224,37 @@ a {
   text-align: left;
 }
 
-.top-nav-search__all {
-  background: rgba(255, 255, 255, 0.055);
-  border: 0;
-  border-radius: 9px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 11px 12px;
-  width: 100%;
-}
-
-.top-nav-search__all:hover,
-.top-nav-search__terms button:hover,
-.top-nav-search__matches button:hover {
+.top-nav-search__result:hover {
   background: rgba(255, 255, 255, 0.09);
 }
 
-.top-nav-search__all span,
-.top-nav-search__terms > span,
-.top-nav-search__matches > span {
-  color: var(--faint);
-  display: block;
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.top-nav-search__all strong {
-  font-size: 12px;
-}
-
-.top-nav-search__terms,
-.top-nav-search__matches {
-  border-top: 1px solid var(--line);
-  margin-top: 7px;
-  padding-top: 8px;
-}
-
-.top-nav-search__terms > span,
-.top-nav-search__matches > span {
-  padding: 4px 6px 7px;
-}
-
-.top-nav-search__terms button {
-  background: transparent;
-  border: 0;
-  border-radius: 8px;
-  display: block;
-  font-size: 11px;
-  overflow: hidden;
-  padding: 8px 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  width: 100%;
-}
-
-.top-nav-search__matches button {
+.top-nav-search__result {
   align-items: center;
   background: transparent;
   border: 0;
-  border-radius: 9px;
-  display: grid;
+  border-radius: 8px;
+  display: flex;
+  font-size: 11px;
   gap: 10px;
-  grid-template-columns: 42px minmax(0, 1fr);
-  padding: 8px;
+  padding: 10px;
   width: 100%;
 }
 
-.top-nav-search__matches button > span:last-child {
-  min-width: 0;
+.top-nav-search__result svg {
+  color: var(--faint);
+  flex: 0 0 auto;
 }
 
-.top-nav-search__matches strong,
-.top-nav-search__matches small {
+.top-nav-search__result span {
   display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.top-nav-search__matches strong {
-  font-size: 11px;
-}
-
-.top-nav-search__matches small {
+.top-nav-search__result--fallback {
   color: var(--faint);
-  font-size: 9px;
-  margin-top: 4px;
-}
-
-.top-nav-search__empty {
-  color: var(--faint);
-  font-size: 10px;
-  padding: 15px 10px 10px;
-  text-align: center;
 }
 
 .top-nav__actions {

@@ -21,20 +21,6 @@ import {
 import { SAMSAR_API_SERVER } from '@/lib/config';
 import { parseVideoCollection } from '@/lib/videos';
 
-const buildSuggestedTerms = (query: string, videos: PublishedVideo[]): string[] => {
-  const normalizedQuery = query.trim().toLowerCase();
-  const terms = new Set<string>();
-  videos.forEach((video) => {
-    if (terms.size >= 5) return;
-    if (video.title.trim()) terms.add(video.title.trim());
-    video.tags
-      ?.filter((tag) => tag.toLowerCase().includes(normalizedQuery))
-      .slice(0, 2)
-      .forEach((tag) => terms.add(tag));
-  });
-  return Array.from(terms).slice(0, 5);
-};
-
 const resolveDisplayName = (user: AuthenticatedUser | null): string | null => {
   if (!user || typeof user !== 'object') {
     return null;
@@ -364,11 +350,11 @@ export default function TopNav() {
       setSearchLoading(true);
       try {
         const response = await fetch(
-          `/api/gallery/search?q=${encodeURIComponent(normalizedQuery)}&limit=8`,
+          `/api/gallery/search?q=${encodeURIComponent(normalizedQuery)}&limit=7`,
           { cache: 'no-store', signal: controller.signal }
         );
         if (!response.ok) throw new Error('Semantic suggestions unavailable');
-        setSearchMatches(parseVideoCollection(await response.json()).items.slice(0, 8));
+        setSearchMatches(parseVideoCollection(await response.json()).items.slice(0, 7));
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return;
         try {
@@ -383,7 +369,7 @@ export default function TopNav() {
               [video.title, video.description, ...(video.tags ?? [])]
                 .some((value) => value.toLowerCase().includes(normalized))
             )
-            .slice(0, 8);
+            .slice(0, 7);
           setSearchMatches(fallbackMatches);
         } catch {
           setSearchMatches([]);
@@ -421,11 +407,6 @@ export default function TopNav() {
     navigateToSearch(searchQuery);
   };
 
-  const suggestedTerms = useMemo(
-    () => buildSuggestedTerms(searchQuery, searchMatches),
-    [searchMatches, searchQuery]
-  );
-
   return (
     <>
       <nav className="top-nav" ref={navRef}>
@@ -436,10 +417,6 @@ export default function TopNav() {
           </Link>
 
           <form className="top-nav-search" onSubmit={handleSearchSubmit} ref={searchRef} role="search">
-            <svg aria-hidden="true" fill="none" height="17" viewBox="0 0 24 24" width="17">
-              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
-              <path d="m20 20-4-4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-            </svg>
             <input
               aria-label="Search videos"
               autoComplete="off"
@@ -455,54 +432,45 @@ export default function TopNav() {
                   navigateToSearch(searchQuery);
                 }
               }}
-              placeholder="Search videos, creators, and topics"
+              placeholder="Search"
               type="search"
               value={searchQuery}
             />
             {searchLoading && <span className="top-nav-search__spinner" aria-hidden="true" />}
+            <svg aria-hidden="true" fill="none" height="17" viewBox="0 0 24 24" width="17">
+              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+              <path d="m20 20-4-4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+            </svg>
 
             {searchOpen && searchQuery.trim().length >= 2 && (
-              <div className="top-nav-search__dropdown" role="listbox" aria-label="Search suggestions">
-                <button
-                  className="top-nav-search__all"
-                  onClick={() => navigateToSearch(searchQuery)}
-                  type="button"
-                >
-                  <span>Search all videos for</span>
-                  <strong>“{searchQuery.trim()}”</strong>
-                </button>
-
-                {suggestedTerms.length > 0 && (
-                  <div className="top-nav-search__terms">
-                    <span>Suggested searches</span>
-                    {suggestedTerms.map((term) => (
-                      <button key={term} onClick={() => navigateToSearch(term)} type="button">
-                        {term}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {searchMatches.length > 0 && (
-                  <div className="top-nav-search__matches">
-                    <span>Closest video matches</span>
-                    {searchMatches.slice(0, 5).map((video) => (
-                      <button
-                        key={video.id}
-                        onClick={() => navigateToSearch(video.title)}
-                        type="button"
-                      >
-                        <span>
-                          <strong>{video.title}</strong>
-                          <small>{video.description || 'Samsar video'}</small>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+              <div className="top-nav-search__dropdown" aria-label="Search suggestions">
+                {searchMatches.map((video) => (
+                  <button
+                    className="top-nav-search__result"
+                    key={video.id}
+                    onClick={() => navigateToSearch(video.title)}
+                    type="button"
+                  >
+                    <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 24 24" width="14">
+                      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+                      <path d="m20 20-4-4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+                    </svg>
+                    <span>{video.title}</span>
+                  </button>
+                ))}
 
                 {!searchLoading && searchMatches.length === 0 && (
-                  <div className="top-nav-search__empty">Press Enter to search the full library.</div>
+                  <button
+                    className="top-nav-search__result top-nav-search__result--fallback"
+                    onClick={() => navigateToSearch(searchQuery)}
+                    type="button"
+                  >
+                    <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 24 24" width="14">
+                      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+                      <path d="m20 20-4-4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+                    </svg>
+                    <span>Search for “{searchQuery.trim()}”</span>
+                  </button>
                 )}
               </div>
             )}
