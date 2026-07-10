@@ -13,6 +13,7 @@ import type { PublishedVideo } from '@/lib/types';
 import {
   formatCompactNumber,
   formatPublishedDate,
+  isLandscapeVideo,
   isPortraitVideo,
   parseVideoCollection
 } from '@/lib/videos';
@@ -511,7 +512,6 @@ function GallerySkeleton() {
       <aside className="library-loading__nav" aria-hidden="true">
         <div className="library-loading__nav-intro">
           <span className="library-loading__nav-line library-loading__nav-line--eyebrow" />
-          <span className="library-loading__nav-line library-loading__nav-line--copy" />
         </div>
         <span className="library-loading__nav-item library-loading__nav-item--active" />
         <span className="library-loading__nav-label" />
@@ -568,7 +568,7 @@ export default function VideoGallery({
   searchMode?: boolean;
 }) {
   const [videos, setVideos] = useState<PublishedVideo[]>([]);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState<boolean | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<PublishedVideo | null>(null);
   const [mobilePlaybackMode, setMobilePlaybackMode] = useState<MobilePlaybackMode | null>(null);
   const [activeMobileId, setActiveMobileId] = useState<string | null>(null);
@@ -814,7 +814,12 @@ export default function VideoGallery({
     const currentById = new Map(videos.map((video) => [video.id, video]));
     const recommendations = homeRecommendations
       .filter((video) => !unavailableVideoIds.has(video.id))
-      .map((video) => currentById.get(video.id) ?? video);
+      // Recommendations determine rank, but the publication feed is the
+      // canonical source for layout inputs such as aspect ratio and tags.
+      // A partial recommendation object must never be rendered as landscape
+      // merely because it omitted its aspect ratio.
+      .map((video) => currentById.get(video.id))
+      .filter((video): video is PublishedVideo => Boolean(video));
     return mergeUniqueVideos(recommendations, sortByPopularity(searchedVideos));
   }, [homeRecommendations, query, searchedVideos, unavailableVideoIds, videos]);
   const categoryItems = useMemo<GalleryCategory[]>(() => {
@@ -859,7 +864,7 @@ export default function VideoGallery({
     );
   }, [searchedVideos, selectedCategoryItem]);
   const categoryLandscapeResults = useMemo(
-    () => categoryResults.filter((video) => !isPortraitVideo(video)),
+    () => categoryResults.filter(isLandscapeVideo),
     [categoryResults]
   );
   const categoryPortraitResults = useMemo(
@@ -871,11 +876,11 @@ export default function VideoGallery({
     [rankedVideos]
   );
   const landscapeVideos = useMemo(
-    () => rankedVideos.filter((video) => !isPortraitVideo(video)),
+    () => rankedVideos.filter(isLandscapeVideo),
     [rankedVideos]
   );
   const desktopHomeSections = useMemo(() => {
-    const desktopLandscapeVideos = rankedVideos.filter((video) => !isPortraitVideo(video));
+    const desktopLandscapeVideos = rankedVideos.filter(isLandscapeVideo);
     const desktopPortraitVideos = rankedVideos.filter(isPortraitVideo);
     const featured = desktopLandscapeVideos.slice(0, 3);
     const featuredIds = new Set(featured.map((video) => video.id));
@@ -945,7 +950,7 @@ export default function VideoGallery({
     for (const category of selected.length > 0 ? selected : sorted) {
       const available = category.videos.filter((video) => !claimedIds.has(video.id));
       const categoryLandscape = available
-        .filter((video) => !isPortraitVideo(video))
+        .filter(isLandscapeVideo)
         .slice(0, 3);
       const categoryPortrait = available.filter(isPortraitVideo).slice(0, 5);
       const assigned = [...categoryLandscape, ...categoryPortrait];
@@ -1306,7 +1311,7 @@ export default function VideoGallery({
   );
   const openSearchResult = isMobile ? startMobilePlayback : openVideo;
 
-  const isInitialLoading = loading || !homeRecommendationsReady;
+  const isInitialLoading = loading || !homeRecommendationsReady || isMobile === null;
 
   if (isInitialLoading) {
     return <GallerySkeleton />;
@@ -1389,10 +1394,9 @@ export default function VideoGallery({
 
       {!searchMode && !isMobile && <div className="desktop-library">
         <div className="desktop-library-layout">
-          <aside className="desktop-category-nav" aria-label="Browse video categories">
+          <aside className="desktop-category-nav" aria-label="Categories">
             <div className="desktop-category-nav__intro">
-              <span>Browse</span>
-              <p>Explore the library</p>
+              <span>Categories</span>
             </div>
             <button
               className={`desktop-category-nav__item${selectedCategoryItem ? '' : ' is-active'}`}

@@ -142,6 +142,11 @@ export const isPortraitVideo = (video: PublishedVideo): boolean => {
   return ratio !== null && ratio < 0.9;
 };
 
+export const isLandscapeVideo = (video: PublishedVideo): boolean => {
+  const ratio = aspectRatioNumber(video.aspectRatio);
+  return ratio !== null && ratio >= 0.9;
+};
+
 export const formatCompactNumber = (value: number): string => {
   return new Intl.NumberFormat('en', {
     notation: value >= 1_000 ? 'compact' : 'standard',

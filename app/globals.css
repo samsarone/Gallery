@@ -497,12 +497,6 @@ a {
   text-transform: uppercase;
 }
 
-.desktop-category-nav__intro p {
-  color: var(--faint);
-  font-size: 11px;
-  margin: 6px 0 0;
-}
-
 .desktop-category-nav__label {
   color: var(--faint);
   font-size: 9px;
@@ -1268,10 +1262,6 @@ a {
 
 .library-loading__nav-line--eyebrow {
   width: 56px;
-}
-
-.library-loading__nav-line--copy {
-  width: 122px;
 }
 
 .library-loading__nav-item {

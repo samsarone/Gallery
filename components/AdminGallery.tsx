@@ -6,6 +6,7 @@ import type { PublishedVideo } from '@/lib/types';
 import {
   formatCompactNumber,
   formatPublishedDate,
+  isLandscapeVideo,
   isPortraitVideo,
   parseVideoCollection
 } from '@/lib/videos';
@@ -274,7 +275,7 @@ export default function AdminGallery() {
       <section className="admin-overview" aria-label="Gallery overview">
         <div><strong>{totalCount ?? videos.length}</strong><span>Published videos</span></div>
         <div><strong>{videos.filter(isPortraitVideo).length}</strong><span>9:16 videos</span></div>
-        <div><strong>{videos.filter((video) => !isPortraitVideo(video)).length}</strong><span>16:9 videos</span></div>
+        <div><strong>{videos.filter(isLandscapeVideo).length}</strong><span>16:9 videos</span></div>
         <label className="admin-search">
           <span aria-hidden="true">⌕</span>
           <input

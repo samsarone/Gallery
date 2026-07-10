@@ -25,7 +25,10 @@ const publicPublicationItems = (payload: unknown): unknown[] => {
 const matchesFormat = (video: PublishedVideo, format?: 'landscape' | 'portrait' | 'square') => {
   if (!format) return true;
   const ratio = aspectRatioNumber(video.aspectRatio);
-  if (ratio === null) return format !== 'square';
+  // Unknown dimensions must not leak into a format-specific feed. Treating an
+  // absent ratio as landscape causes portrait publications to flash in that
+  // feed until their canonical publication metadata arrives.
+  if (ratio === null) return false;
   if (format === 'portrait') return ratio < 0.9;
   if (format === 'square') return Math.abs(ratio - 1) <= 0.1;
   return ratio >= 0.9;
