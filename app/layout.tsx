@@ -5,8 +5,8 @@ import { getSiteUrl } from '@/lib/site';
 
 const siteUrl = getSiteUrl();
 const metadataBase = new URL(siteUrl);
-const ogTitle = 'Samsar Gallery — Discover videos';
-const ogDescription = 'Discover popular and personalized videos created by the Samsar community.';
+const ogTitle = 'The Gallery — Samsar';
+const ogDescription = 'A living archive of moving images from the Samsar community.';
 
 export const metadata: Metadata = {
   metadataBase,
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     title: ogTitle,
     description: ogDescription,
     url: siteUrl,
-    siteName: ogTitle,
+    siteName: 'The Gallery — Samsar',
     type: 'website',
     images: [
       {
