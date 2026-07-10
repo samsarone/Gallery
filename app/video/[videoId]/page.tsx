@@ -3,8 +3,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { fetchPublicVideo } from '@/lib/publicVideo';
 import { getSiteUrl, getVideoPagePath } from '@/lib/site';
-import { formatCompactNumber, formatPublishedDate, isPortraitVideo } from '@/lib/videos';
-import VideoPageMobileNav from '@/components/VideoPageMobileNav';
+import { isPortraitVideo } from '@/lib/videos';
+import VideoPageExperience from '@/components/VideoPageExperience';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -101,34 +101,7 @@ export default async function VideoPage({ params }: VideoPageProps) {
           <Link href="/">← Gallery</Link>
         </div>
 
-        <article className="video-page__card">
-          <div className={`video-page__media${portrait ? ' video-page__media--portrait' : ''}`}>
-            <VideoPageMobileNav />
-            <video
-              controls
-              playsInline
-              poster={video.posterUrl}
-              preload="metadata"
-              src={video.videoUrl}
-            />
-          </div>
-
-          <div className="video-page__body">
-            <div className="video-page__eyebrow">{creator}</div>
-            <h1>{video.title}</h1>
-            <div className="video-page__meta">
-              <span>{formatCompactNumber(video.stats.views)} views</span>
-              <span aria-hidden="true">•</span>
-              <span>{formatPublishedDate(video.createdAt)}</span>
-            </div>
-            {video.description && <p className="video-page__description">{video.description}</p>}
-            {video.tags && video.tags.length > 0 && (
-              <ul className="video-page__tags" aria-label="Video tags">
-                {video.tags.slice(0, 10).map((tag) => <li key={tag}>{tag}</li>)}
-              </ul>
-            )}
-          </div>
-        </article>
+        <VideoPageExperience creator={creator} portrait={portrait} video={video} />
       </div>
     </main>
   );

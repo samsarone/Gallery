@@ -13,6 +13,7 @@ export interface VideoComment {
   createdAt: string;
   likes: number;
   isBotUser?: boolean;
+  replies?: VideoComment[];
 }
 
 export interface VideoCommentState {

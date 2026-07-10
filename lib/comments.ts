@@ -448,6 +448,18 @@ export const normalizeComment = (payload: unknown): VideoComment | null => {
       ['comment', 'isBotUser']
     ]) ?? false;
 
+  const replyCandidates = [
+    record.replies,
+    record.children,
+    record.responses,
+    record.commentReplies,
+    record.comment_replies
+  ];
+  const rawReplies = replyCandidates.find(Array.isArray) as unknown[] | undefined;
+  const replies = (rawReplies ?? [])
+    .map((reply) => normalizeComment(reply))
+    .filter((reply): reply is VideoComment => Boolean(reply));
+
   return {
     id,
     text,
@@ -455,7 +467,8 @@ export const normalizeComment = (payload: unknown): VideoComment | null => {
     createdBy,
     createdAt,
     likes: Math.max(0, Math.round(likesValue)),
-    isBotUser
+    isBotUser,
+    replies
   };
 };
 

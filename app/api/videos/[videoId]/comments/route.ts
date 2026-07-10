@@ -188,6 +188,31 @@ export async function GET(
     }
 
     const parsed = parseCommentsPayload(payload);
+
+    // The paginated publication endpoint intentionally returns a compact shape.
+    // Enrich the visible page with reply trees from the legacy populated read
+    // endpoint when it is available, while keeping pagination resilient if it is not.
+    try {
+      const repliesEndpoint = `${SAMSAR_API_SERVER}/content/publication/comments/${encodeURIComponent(videoId)}`;
+      const repliesResponse = await fetchPublicRead(repliesEndpoint, authToken);
+      if (repliesResponse.ok) {
+        const repliesPayload = await repliesResponse.json();
+        const populated = parseCommentsPayload(repliesPayload);
+        const populatedById = new Map(
+          populated.items.map((comment) => [comment.id, comment])
+        );
+
+        parsed.items = parsed.items.map((comment) => {
+          const richComment = populatedById.get(comment.id);
+          return richComment?.replies?.length
+            ? { ...comment, replies: richComment.replies }
+            : comment;
+        });
+      }
+    } catch {
+      // Top-level comments should remain available if reply hydration fails.
+    }
+
     if (parsed.items.length === 0) {
       console.warn(`No comments parsed for video ${videoId}.`, {
         payloadSnippet: Array.isArray(payload)
