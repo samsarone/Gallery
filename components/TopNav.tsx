@@ -418,10 +418,6 @@ export default function TopNav() {
         <div className="top-nav__container">
           <Link className="top-nav__brand" href="/" aria-label="Samsar Gallery home">
             <span className="top-nav__brand-lockup">
-              <span className="top-nav__brand-overline">
-                <span className="top-nav__brand-pulse" aria-hidden="true" />
-                samsar / visual library
-              </span>
               <span className="top-nav__brand-title">The Gallery</span>
             </span>
           </Link>

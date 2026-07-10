@@ -911,15 +911,26 @@ export default function VideoGallery({
   );
   const mobileVideos = (mobileQueue.length > 0 ? mobileQueue : baseMobileVideos)
     .filter((video) => !unavailableVideoIds.has(video.id));
+  const fallbackSelectedRecommendations = useMemo(
+    () =>
+      sortByPopularity(
+        videos.filter(
+          (video) =>
+            video.id !== selectedVideo?.id && !unavailableVideoIds.has(video.id)
+        )
+      ).slice(0, 14),
+    [selectedVideo, unavailableVideoIds, videos]
+  );
   const visibleSelectedRecommendations = selectedRecommendations.length > 0
     ? selectedRecommendations.filter((video) => !unavailableVideoIds.has(video.id))
     : recommendationsError
-      ? homeRecommendations
-          .filter(
+      ? mergeUniqueVideos(
+          homeRecommendations.filter(
             (video) =>
               video.id !== selectedVideo?.id && !unavailableVideoIds.has(video.id)
-          )
-          .slice(0, 14)
+          ),
+          fallbackSelectedRecommendations
+        ).slice(0, 14)
       : [];
 
   useEffect(() => {

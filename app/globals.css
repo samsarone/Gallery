@@ -260,35 +260,15 @@ a {
 }
 
 .top-nav__brand-lockup {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: inline-flex;
   min-width: 0;
 }
 
-.top-nav__brand-overline {
-  align-items: center;
-  color: var(--faint);
-  display: flex;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 8px;
-  gap: 6px;
-  letter-spacing: 0.1em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.top-nav__brand-pulse {
-  background: var(--accent);
-  border-radius: 50%;
-  box-shadow: 0 0 12px rgba(57, 216, 129, 0.64);
-  display: inline-block;
-  height: 5px;
-  width: 5px;
-}
-
 .top-nav__brand-title {
-  color: var(--text);
+  background: linear-gradient(110deg, #f4f8ff 8%, #a8f0c8 58%, #9bdcff 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
   font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.055em;
@@ -2472,10 +2452,6 @@ a {
 
   .top-nav__brand {
     min-width: 0;
-  }
-
-  .top-nav__brand-overline {
-    display: none;
   }
 
   .top-nav__brand-title {
