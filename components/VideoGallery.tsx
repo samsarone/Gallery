@@ -237,7 +237,7 @@ function LandscapeCard({
   onUnavailable
 }: LandscapeCardProps) {
   return (
-    <article className="landscape-card">
+    <article className="landscape-card" data-video-id={video.id}>
       <button
         aria-label={`Play ${video.title}`}
         className="landscape-card__media"
@@ -284,7 +284,7 @@ function PortraitFeatureCard({
   onUnavailable: (id: string) => void;
 }) {
   return (
-    <article className="portrait-feature-card">
+    <article className="portrait-feature-card" data-video-id={video.id}>
       <button onClick={() => onOpen(video)} type="button" aria-label={`Play ${video.title}`}>
         <PreviewVideo
           onMetadata={onMetadata}
@@ -703,15 +703,25 @@ export default function VideoGallery({
     () => rankedVideos.filter((video) => !isPortraitVideo(video)),
     [rankedVideos]
   );
-  const featuredLandscapeVideos = landscapeVideos.slice(0, 4);
-  const featuredPortraitVideos = portraitVideos.slice(0, 8);
-  const categorySections = useMemo(() => {
+  const desktopHomeSections = useMemo(() => {
+    const desktopLandscapeVideos = rankedVideos.filter((video) => !isPortraitVideo(video));
+    const desktopPortraitVideos = rankedVideos.filter(isPortraitVideo);
+    const featured = desktopLandscapeVideos.slice(0, 4);
+    const featuredIds = new Set(featured.map((video) => video.id));
+    const popularLandscape = desktopLandscapeVideos
+      .filter((video) => !featuredIds.has(video.id))
+      .slice(0, 8);
+    const popularPortrait = desktopPortraitVideos.slice(0, 8);
+    const claimedIds = new Set(
+      [...featured, ...popularLandscape, ...popularPortrait].map((video) => video.id)
+    );
     const categories = new Map<
       string,
       { name: string; videos: PublishedVideo[]; firstRank: number }
     >();
 
     rankedVideos.forEach((video, rank) => {
+      if (claimedIds.has(video.id)) return;
       const videoTags = Array.from(
         new Set(
           (video.tags ?? [])
@@ -754,15 +764,43 @@ export default function VideoGallery({
     const selected = preferred.length >= 3
       ? preferred
       : [...preferred, ...supporting];
+    const categorySections: Array<
+      (typeof sorted)[number] & {
+        landscape: PublishedVideo[];
+        portrait: PublishedVideo[];
+      }
+    > = [];
 
-    return (selected.length > 0 ? selected : sorted).slice(0, 6).map((category) => ({
-      ...category,
-      landscape: category.videos
+    for (const category of selected.length > 0 ? selected : sorted) {
+      const available = category.videos.filter((video) => !claimedIds.has(video.id));
+      const categoryLandscape = available
         .filter((video) => !isPortraitVideo(video))
-        .slice(0, 4),
-      portrait: category.videos.filter(isPortraitVideo).slice(0, 8)
-    }));
+        .slice(0, 4);
+      const categoryPortrait = available.filter(isPortraitVideo).slice(0, 8);
+      const assigned = [...categoryLandscape, ...categoryPortrait];
+      if (assigned.length < 2) continue;
+
+      assigned.forEach((video) => claimedIds.add(video.id));
+      categorySections.push({
+        ...category,
+        videos: assigned,
+        landscape: categoryLandscape,
+        portrait: categoryPortrait
+      });
+      if (categorySections.length === 6) break;
+    }
+
+    return {
+      featured,
+      popularLandscape,
+      popularPortrait,
+      categorySections
+    };
   }, [rankedVideos]);
+  const featuredLandscapeVideos = desktopHomeSections.featured;
+  const popularLandscapeVideos = desktopHomeSections.popularLandscape;
+  const popularPortraitVideos = desktopHomeSections.popularPortrait;
+  const categorySections = desktopHomeSections.categorySections;
   const mobileLeadLandscape = landscapeVideos.slice(0, 2);
   const mobilePortraitGrid = portraitVideos.slice(0, 6);
   const mobileRemainingLandscape = landscapeVideos.slice(2);
@@ -1158,14 +1196,36 @@ export default function VideoGallery({
           </div>
         ) : (
           <>
-            {(featuredLandscapeVideos.length > 0 || featuredPortraitVideos.length > 0) && (
-              <section className="featured-portrait-section" aria-labelledby="featured-title">
+            {featuredLandscapeVideos.length > 0 && (
+              <section className="featured-section" aria-labelledby="featured-title">
                 <div className="section-heading section-heading--primary">
                   <h1 id="featured-title">Featured</h1>
                 </div>
-                {featuredLandscapeVideos.length > 0 && (
-                  <div className="landscape-grid featured-landscape-grid">
-                    {featuredLandscapeVideos.map((video) => (
+                <div className="landscape-grid featured-landscape-grid">
+                  {featuredLandscapeVideos.map((video) => (
+                    <LandscapeCard
+                      key={video.id}
+                      liking={likingIds.has(video.id)}
+                      onLike={toggleLike}
+                      onMetadata={updateInferredAspectRatio}
+                      onOpen={openVideo}
+                      onShare={shareVideo}
+                      onUnavailable={markVideoUnavailable}
+                      video={video}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {(popularLandscapeVideos.length > 0 || popularPortraitVideos.length > 0 || hasMore) && (
+              <section className="library-section" id="popular" aria-labelledby="popular-landscape-title">
+                <div className="section-heading">
+                  <h2 id="popular-landscape-title">Popular</h2>
+                </div>
+                {popularLandscapeVideos.length > 0 && (
+                  <div className="landscape-grid">
+                    {popularLandscapeVideos.map((video) => (
                       <LandscapeCard
                         key={video.id}
                         liking={likingIds.has(video.id)}
@@ -1179,9 +1239,9 @@ export default function VideoGallery({
                     ))}
                   </div>
                 )}
-                {featuredPortraitVideos.length > 0 && (
+                {popularPortraitVideos.length > 0 && (
                   <div className="featured-portrait-grid aspect-row--spaced">
-                    {featuredPortraitVideos.map((video, index) => (
+                    {popularPortraitVideos.map((video, index) => (
                       <PortraitFeatureCard
                         key={video.id}
                         onMetadata={updateInferredAspectRatio}
@@ -1193,54 +1253,18 @@ export default function VideoGallery({
                     ))}
                   </div>
                 )}
+                {hasMore && (
+                  <button
+                    className="load-more-button"
+                    disabled={loadingMore}
+                    onClick={() => void loadVideos(nextCursor)}
+                    type="button"
+                  >
+                    {loadingMore ? 'Loading…' : 'Show more'} <Icon name="arrow" size={17} />
+                  </button>
+                )}
               </section>
             )}
-
-            <section className="library-section" id="popular" aria-labelledby="popular-landscape-title">
-              <div className="section-heading">
-                <h2 id="popular-landscape-title">Popular</h2>
-              </div>
-              {landscapeVideos.length > 0 && (
-                <div className="landscape-grid">
-                  {landscapeVideos.map((video) => (
-                    <LandscapeCard
-                      key={video.id}
-                      liking={likingIds.has(video.id)}
-                      onLike={toggleLike}
-                      onMetadata={updateInferredAspectRatio}
-                      onOpen={openVideo}
-                      onShare={shareVideo}
-                      onUnavailable={markVideoUnavailable}
-                      video={video}
-                    />
-                  ))}
-                </div>
-              )}
-              {portraitVideos.length > 0 && (
-                <div className="featured-portrait-grid aspect-row--spaced">
-                  {portraitVideos.slice(0, 8).map((video, index) => (
-                    <PortraitFeatureCard
-                      key={video.id}
-                      onMetadata={updateInferredAspectRatio}
-                      onOpen={openVideo}
-                      onUnavailable={markVideoUnavailable}
-                      rank={index + 1}
-                      video={video}
-                    />
-                  ))}
-                </div>
-              )}
-              {hasMore && (
-                <button
-                  className="load-more-button"
-                  disabled={loadingMore}
-                  onClick={() => void loadVideos(nextCursor)}
-                  type="button"
-                >
-                  {loadingMore ? 'Loading…' : 'Show more'} <Icon name="arrow" size={17} />
-                </button>
-              )}
-            </section>
 
             {categorySections.map((category, categoryIndex) => (
               <section

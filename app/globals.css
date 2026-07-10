@@ -437,7 +437,7 @@ a {
   width: 15px;
 }
 
-.featured-portrait-section {
+.featured-section {
   padding-top: 0;
 }
 
@@ -448,17 +448,7 @@ a {
 }
 
 .landscape-grid + .aspect-row--spaced {
-  margin-top: 34px;
-}
-
-.category-section {
-  border-top: 1px solid var(--line);
-  margin-top: 56px;
-  padding-top: 36px;
-}
-
-.category-section .section-heading h2 {
-  font-size: 32px;
+  margin-top: 40px;
 }
 
 .portrait-feature-card {
@@ -568,7 +558,9 @@ a {
 }
 
 .library-section {
-  padding-top: 56px;
+  border-top: 1px solid var(--line);
+  margin-top: 72px;
+  padding-top: 42px;
 }
 
 .section-heading {
