@@ -98,6 +98,54 @@ const formatCommentDate = (value: string) => {
   }).format(date);
 };
 
+function WholeWordDescriptionPreview({ description }: { description: string }) {
+  const previewRef = useRef<HTMLParagraphElement>(null);
+  const normalized = useMemo(
+    () => description.replace(/\s+/g, ' ').trim() || 'No description available.',
+    [description]
+  );
+  const [preview, setPreview] = useState(normalized);
+
+  useEffect(() => {
+    const element = previewRef.current;
+    if (!element) return;
+
+    const measure = () => {
+      const current = previewRef.current;
+      if (!current || current.clientWidth === 0) return;
+      const context = document.createElement('canvas').getContext('2d');
+      if (!context) return;
+
+      context.font = window.getComputedStyle(current).font;
+      if (context.measureText(normalized).width <= current.clientWidth) {
+        setPreview(normalized);
+        return;
+      }
+
+      const words = normalized.split(' ');
+      let fitted = '';
+      for (const word of words) {
+        const candidate = fitted ? `${fitted} ${word}` : word;
+        if (context.measureText(`${candidate}…`).width > current.clientWidth) break;
+        fitted = candidate;
+      }
+      setPreview(fitted ? `${fitted}…` : '…');
+    };
+
+    measure();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [normalized]);
+
+  return <p ref={previewRef} title={normalized}>{preview}</p>;
+}
+
 function ExpandableVideoDescription({ description }: { description: string }) {
   const descriptionId = useId();
   const descriptionRef = useRef<HTMLParagraphElement>(null);
@@ -971,7 +1019,6 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
           <strong>Recommended for you</strong>
         </div>
         {mobileFeedVideos.slice(1).map((item) => {
-          const itemCreator = item.creatorHandle ? `@${item.creatorHandle}` : 'Samsar creator';
           return (
             <article
               className="mobile-recommendation-card"
@@ -979,24 +1026,17 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
               key={item.id}
               ref={(element) => { mobileFeedItemRefs.current[item.id] = element; }}
             >
-              <div className="mobile-recommendation-card__media">
-                <video
-                  muted
-                  onEnded={() => advanceMobileFeed(item.id)}
-                  playsInline
-                  poster={item.posterUrl}
-                  preload="metadata"
-                  ref={(element) => { mobileFeedVideoRefs.current[item.id] = element; }}
-                  src={item.videoUrl}
-                />
-                <a aria-label={`Watch ${item.title}`} href={getVideoPagePath(item.id)}>
-                  <Icon name="play" size={20} />
-                </a>
-              </div>
-              <a className="mobile-recommendation-card__copy" href={getVideoPagePath(item.id)}>
-                <small>{itemCreator}</small>
-                <h2>{item.title}</h2>
-                <span>{formatCompactNumber(item.stats.views)} views</span>
+              <a aria-label={`Watch ${item.title}`} href={getVideoPagePath(item.id)}>
+                <span className="mobile-recommendation-card__media">
+                  <video aria-hidden="true" muted playsInline poster={item.posterUrl} preload="none" />
+                  <span className="mobile-recommendation-card__play" aria-hidden="true">
+                    <Icon name="play" size={14} />
+                  </span>
+                </span>
+                <span className="mobile-recommendation-card__copy">
+                  <h2>{item.title}</h2>
+                  <WholeWordDescriptionPreview description={item.description} />
+                </span>
               </a>
             </article>
           );
