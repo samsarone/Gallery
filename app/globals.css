@@ -5310,6 +5310,10 @@ a {
   body:has(.video-watch--mobile-16x9:not(.video-watch--mobile-landscape)) .top-nav--video-page {
     display: block;
   }
+
+  .video-watch--mobile-16x9:not(.video-watch--mobile-landscape) .mobile-landscape-view__primary {
+    padding-top: clamp(18px, 3dvh, 26px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
