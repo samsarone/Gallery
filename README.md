@@ -17,7 +17,7 @@ The interface adapts the catalogue and player to the device and to each video's 
 
 ## Demo
 
-[Watch the 50-second desktop and mobile product demo](https://static.samsar.one/public/samsar-gallery-demo-50s.mp4).
+[![Samsar Gallery 50-second desktop and mobile demo](https://static.samsar.one/public/samsar-gallery-demo-readme.gif)](https://static.samsar.one/public/samsar-gallery-demo-50s.mp4)
 
 ## Features
 
