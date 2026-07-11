@@ -1495,7 +1495,7 @@ a {
 .desktop-library {
   margin: 0 auto;
   max-width: 1480px;
-  padding: 44px 32px 96px;
+  padding: 12px 32px 96px;
 }
 
 .desktop-library-layout {
@@ -1511,7 +1511,7 @@ a {
 
 .desktop-category-nav {
   position: sticky;
-  top: calc(var(--nav-height) + 24px);
+  top: calc(var(--nav-height) + 12px);
 }
 
 .desktop-category-nav__intro {
@@ -1520,19 +1520,17 @@ a {
   padding: 0 12px 16px;
 }
 
-.desktop-category-nav__intro span,
 .desktop-category-nav__label {
   color: var(--accent-light);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
 .desktop-category-nav__label {
-  color: var(--faint);
-  font-size: 9px;
-  margin: 27px 12px 9px;
+  color: var(--muted);
+  margin: 18px 12px 9px;
 }
 
 .desktop-category-nav__list {
@@ -1560,6 +1558,15 @@ a {
   text-align: left;
   transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
   width: 100%;
+}
+
+.desktop-category-nav__list .desktop-category-nav__item {
+  color: #c4cfdb;
+  font-weight: 500;
+}
+
+.desktop-category-nav__list .desktop-category-nav__item small {
+  color: #8f9eae;
 }
 
 .desktop-category-nav__item:hover,
@@ -1617,18 +1624,8 @@ a {
 }
 
 .taxonomy-pill-bar {
-  margin-bottom: 34px;
+  margin: 0 0 16px;
   min-width: 0;
-}
-
-.taxonomy-pill-bar__label {
-  color: var(--faint);
-  display: block;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  margin: 0 2px 10px;
-  text-transform: uppercase;
 }
 
 .taxonomy-pill-bar__track {
@@ -1654,7 +1651,7 @@ a {
   background: linear-gradient(145deg, rgba(20, 35, 50, 0.92), rgba(10, 20, 31, 0.9));
   border: 1px solid var(--line-strong);
   border-radius: 999px;
-  color: var(--muted);
+  color: #c4cfdb;
   cursor: pointer;
   display: inline-flex;
   flex: 0 0 auto;
@@ -1669,7 +1666,7 @@ a {
 }
 
 .taxonomy-pill small {
-  color: var(--faint);
+  color: #8f9eae;
   font-size: 9px;
   font-weight: 500;
 }
@@ -1727,6 +1724,18 @@ a {
 
 .taxonomy-result-state {
   margin-top: 30px;
+}
+
+.taxonomy-results-loading {
+  margin-top: 0;
+}
+
+.taxonomy-results-loading--after-header {
+  margin-top: 34px;
+}
+
+.taxonomy-results-loading__portraits {
+  margin-top: 40px;
 }
 
 .desktop-category-nav__note {
@@ -4596,32 +4605,10 @@ a {
   }
 
   .mobile-category-drawer__header {
-    align-items: flex-start;
-    border-bottom: 1px solid var(--line);
     display: flex;
-    justify-content: space-between;
-    margin-bottom: 17px;
-    padding: 0 5px 18px;
-  }
-
-  .mobile-category-drawer__header div {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-  }
-
-  .mobile-category-drawer__header span,
-  .mobile-category-drawer__label {
-    color: var(--accent-light);
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-  }
-
-  .mobile-category-drawer__header strong {
-    font-size: 16px;
-    letter-spacing: -0.03em;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+    padding: 0 5px;
   }
 
   .mobile-category-drawer__close {
@@ -4646,9 +4633,12 @@ a {
   }
 
   .mobile-category-drawer__label {
-    color: var(--faint);
-    font-size: 9px;
-    margin: 26px 5px 9px;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    margin: 18px 5px 9px;
+    text-transform: uppercase;
   }
 
   .mobile-category-drawer__list {
@@ -4670,6 +4660,15 @@ a {
     padding: 11px 10px;
     text-align: left;
     width: 100%;
+  }
+
+  .mobile-category-drawer__list .mobile-category-drawer__item {
+    color: #c4cfdb;
+    font-weight: 500;
+  }
+
+  .mobile-category-drawer__list .mobile-category-drawer__item small {
+    color: #8f9eae;
   }
 
   .mobile-category-drawer__item:hover,
@@ -4732,6 +4731,18 @@ a {
     display: block;
     min-height: calc(100dvh - var(--nav-height));
     padding: 8px 12px 76px;
+  }
+
+  .taxonomy-pill-bar {
+    margin: 0 0 14px;
+  }
+
+  .taxonomy-results-loading--after-header {
+    margin-top: 26px;
+  }
+
+  .taxonomy-results-loading__portraits {
+    margin-top: 30px;
   }
 
   .mobile-category-results__heading {

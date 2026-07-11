@@ -100,7 +100,7 @@ export async function GET(
   } catch (error) {
     console.error(`Failed to load gallery ${params.kind} publications:`, error);
     return NextResponse.json(
-      { error: `Unable to load publications for this ${params.kind.slice(0, -1)}.` },
+      { error: `Unable to load publications for this ${params.kind === 'topics' ? 'topic' : 'category'}.` },
       { status: 502 }
     );
   }

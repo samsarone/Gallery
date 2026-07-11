@@ -137,7 +137,6 @@ function CategoryPillBar({
 
   return (
     <nav className="taxonomy-pill-bar" aria-label="Browse categories">
-      <span className="taxonomy-pill-bar__label">Categories</span>
       <div className="taxonomy-pill-bar__track">
         {canScrollBack && (
           <button
@@ -602,6 +601,38 @@ function GallerySkeletonCard({ format }: { format: 'landscape' | 'portrait' }) {
         <span className="gallery-skeleton-card__line gallery-skeleton-card__line--title" />
         <span className="gallery-skeleton-card__line gallery-skeleton-card__line--meta" />
       </span>
+    </div>
+  );
+}
+
+function TaxonomyResultsSkeleton({
+  afterHeader = false,
+  mobile = false
+}: {
+  afterHeader?: boolean;
+  mobile?: boolean;
+}) {
+  return (
+    <div
+      aria-label="Loading collection videos"
+      className={`taxonomy-results-loading${afterHeader ? ' taxonomy-results-loading--after-header' : ''}${mobile ? ' taxonomy-results-loading--mobile' : ''}`}
+      role="status"
+    >
+      <span className="sr-only">Loading collection videos</span>
+      <div className={mobile ? 'mobile-browse__landscape-stack' : 'landscape-grid'}>
+        {Array.from({ length: mobile ? 2 : 3 }, (_, index) => (
+          <GallerySkeletonCard format="landscape" key={index} />
+        ))}
+      </div>
+      <div
+        className={mobile
+          ? 'mobile-browse__portrait-grid taxonomy-results-loading__portraits'
+          : 'featured-portrait-grid taxonomy-results-loading__portraits'}
+      >
+        {Array.from({ length: mobile ? 4 : 5 }, (_, index) => (
+          <GallerySkeletonCard format="portrait" key={index} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -1533,6 +1564,11 @@ export default function VideoGallery({
     updateTaxonomyUrl(null);
   }, [closeMobileCategories, updateTaxonomyUrl]);
 
+  useEffect(() => {
+    window.addEventListener('samsar:clear-gallery-taxonomy', clearTaxonomy);
+    return () => window.removeEventListener('samsar:clear-gallery-taxonomy', clearTaxonomy);
+  }, [clearTaxonomy]);
+
   const selectTopic = useCallback((topic: string) => {
     setSelectedTopic(topic);
     setSelectedCategory(null);
@@ -1704,9 +1740,6 @@ export default function VideoGallery({
       {!searchMode && !isMobile && <div className="desktop-library">
         <div className="desktop-library-layout">
           <aside className="desktop-category-nav" aria-label="Topics">
-            <div className="desktop-category-nav__intro">
-              <span>Topics</span>
-            </div>
             <button
               className={`desktop-category-nav__item${hasTaxonomySelection ? '' : ' is-active'}`}
               onClick={clearTaxonomy}
@@ -1755,7 +1788,7 @@ export default function VideoGallery({
               topicSelected={Boolean(selectedTopic)}
             />
 
-            {hasTaxonomySelection && (
+            {selectedTopic && (
               <section className="category-results" aria-labelledby="category-results-title">
                 <header className="category-results__header">
                   <div>
@@ -1771,9 +1804,7 @@ export default function VideoGallery({
             )}
 
             {taxonomyResultLoading ? (
-              <div className="library-state library-state--inline taxonomy-result-state">
-                <h2>Loading {selectedCollectionLabel.toLowerCase()} videos…</h2>
-              </div>
+              <TaxonomyResultsSkeleton afterHeader={Boolean(selectedTopic)} />
             ) : taxonomyResultError ? (
               <div className="library-state library-state--inline taxonomy-result-state">
                 <h2>This collection could not load.</h2>
@@ -1913,10 +1944,6 @@ export default function VideoGallery({
                 role="dialog"
               >
                 <div className="mobile-category-drawer__header">
-                  <div>
-                    <span>Browse</span>
-                    <strong>Video topics</strong>
-                  </div>
                   <button
                     aria-label="Collapse video topics"
                     className="mobile-category-drawer__close"
@@ -1974,7 +2001,7 @@ export default function VideoGallery({
               selectedCategory={selectedCategory}
               topicSelected={Boolean(selectedTopic)}
             />
-          {hasTaxonomySelection && (
+          {selectedTopic && (
             <div className="mobile-category-results__heading">
               <span className="category-results__eyebrow">{selectedCollectionLabel}</span>
               <h1>{formatCategoryName(selectedCollectionName)}</h1>
@@ -1982,9 +2009,7 @@ export default function VideoGallery({
             </div>
           )}
           {taxonomyResultLoading ? (
-            <div className="library-state library-state--inline taxonomy-result-state">
-              <h2>Loading {selectedCollectionLabel.toLowerCase()} videos…</h2>
-            </div>
+            <TaxonomyResultsSkeleton afterHeader={Boolean(selectedTopic)} mobile />
           ) : taxonomyResultError ? (
             <div className="library-state library-state--inline taxonomy-result-state">
               <h2>This collection could not load.</h2>

@@ -432,7 +432,16 @@ export default function TopNav() {
                 </svg>
               </button>
             ) : null}
-            <Link className="top-nav__brand" href="/" aria-label="Samsar Gallery home">
+            <Link
+              aria-label="Samsar Gallery home"
+              className="top-nav__brand"
+              href="/"
+              onClick={() => {
+                if (isGalleryLandingPage) {
+                  window.dispatchEvent(new Event('samsar:clear-gallery-taxonomy'));
+                }
+              }}
+            >
               <span className="top-nav__brand-lockup">
                 <span className="top-nav__brand-title">The Gallery</span>
               </span>
