@@ -224,8 +224,6 @@ const sortByPopularity = (collection: PublishedVideo[]) =>
     return new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
   });
 
-const GENERIC_CATEGORY_TAGS = new Set(['ai', 'samsar', 'video', 'videos']);
-
 const normalizeCategoryKey = (tag: string) => tag.trim().toLowerCase();
 
 const formatCategoryName = (tag: string) =>
@@ -239,6 +237,30 @@ const formatCategoryName = (tag: string) =>
         : `${word.charAt(0).toUpperCase()}${word.slice(1)}`
     )
     .join(' ');
+
+const orderVideosByTopics = (
+  collection: PublishedVideo[],
+  topics: GalleryTaxonomyItem[]
+): PublishedVideo[] => {
+  const ordered: PublishedVideo[] = [];
+  const addedIds = new Set<string>();
+
+  topics.forEach((topic) => {
+    const publicationIds = new Set(topic.publicationIds);
+    collection.forEach((video) => {
+      if (!addedIds.has(video.id) && publicationIds.has(video.id)) {
+        ordered.push(video);
+        addedIds.add(video.id);
+      }
+    });
+  });
+
+  collection.forEach((video) => {
+    if (!addedIds.has(video.id)) ordered.push(video);
+  });
+
+  return ordered;
+};
 
 type TaxonomyResultState = {
   kind: GalleryTaxonomyKind;
@@ -641,9 +663,6 @@ function GallerySkeleton() {
   return (
     <div className="library-loading" aria-label="Loading video library">
       <aside className="library-loading__nav" aria-hidden="true">
-        <div className="library-loading__nav-intro">
-          <span className="library-loading__nav-line library-loading__nav-line--eyebrow" />
-        </div>
         <span className="library-loading__nav-item library-loading__nav-item--active" />
         <span className="library-loading__nav-label" />
         {Array.from({ length: 6 }, (_, index) => (
@@ -652,6 +671,15 @@ function GallerySkeleton() {
       </aside>
 
       <div className="library-loading__main">
+        <div className="library-loading__pills" aria-hidden="true">
+          {Array.from({ length: 7 }, (_, index) => (
+            <span
+              className={`library-loading__pill${index === 0 ? ' library-loading__pill--active' : ''}`}
+              key={index}
+            />
+          ))}
+        </div>
+
         <section className="library-loading__featured" aria-hidden="true">
           <div className="landscape-grid">
             {Array.from({ length: 3 }, (_, index) => (
@@ -1089,7 +1117,7 @@ export default function VideoGallery({
     const recommendations = homeRecommendations
       .filter((video) => !unavailableVideoIds.has(video.id))
       // Recommendations determine rank, but the publication feed is the
-      // canonical source for layout inputs such as aspect ratio and tags.
+      // canonical source for layout inputs such as aspect ratio.
       // A partial recommendation object must never be rendered as landscape
       // merely because it omitted its aspect ratio.
       .map((video) => currentById.get(video.id))
@@ -1128,6 +1156,14 @@ export default function VideoGallery({
     () => browseVideos.filter(isLandscapeVideo),
     [browseVideos]
   );
+  const searchTopResult = searchMode && query.trim()
+    ? searchedVideos[0] ?? null
+    : null;
+  const remainingSearchResults = searchTopResult
+    ? searchedVideos.slice(1)
+    : searchedVideos;
+  const remainingSearchPortraitVideos = remainingSearchResults.filter(isPortraitVideo);
+  const remainingSearchLandscapeVideos = remainingSearchResults.filter(isLandscapeVideo);
   const desktopHomeSections = useMemo(() => {
     const desktopLandscapeVideos = browseVideos.filter(isLandscapeVideo);
     const desktopPortraitVideos = browseVideos.filter(isPortraitVideo);
@@ -1140,96 +1176,52 @@ export default function VideoGallery({
     const claimedIds = new Set(
       [...featured, ...popularLandscape, ...popularPortrait].map((video) => video.id)
     );
-    const categories = new Map<
-      string,
-      { name: string; videos: PublishedVideo[]; firstRank: number }
-    >();
-
-    browseVideos.forEach((video, rank) => {
-      if (claimedIds.has(video.id)) return;
-      const videoTags = Array.from(
-        new Set(
-          (video.tags ?? [])
-            .map((tag) => tag.trim())
-            .filter((tag) => tag.length > 1 && tag.length <= 48)
-            .map((tag) => tag.toLowerCase())
-        )
-      ).slice(0, 8);
-
-      videoTags.forEach((tag) => {
-        const existing = categories.get(tag);
-        if (existing) {
-          existing.videos.push(video);
-          return;
-        }
-        categories.set(tag, {
-          name: formatCategoryName(tag),
-          videos: [video],
-          firstRank: rank
-        });
-      });
-    });
-
-    const sorted = Array.from(categories.entries())
-      .map(([key, category]) => ({ key, ...category }))
-      .sort(
-        (left, right) =>
-          right.videos.length - left.videos.length || left.firstRank - right.firstRank
-      );
-    const preferred = sorted.filter(
-      (category) =>
-        category.videos.length >= 3 && !GENERIC_CATEGORY_TAGS.has(category.key)
-    );
-    const supporting = sorted.filter(
-      (category) =>
-        category.videos.length >= 2 &&
-        !GENERIC_CATEGORY_TAGS.has(category.key) &&
-        !preferred.some((preferredCategory) => preferredCategory.key === category.key)
-    );
-    const selected = preferred.length >= 3
-      ? preferred
-      : [...preferred, ...supporting];
-    const categorySections: Array<
-      (typeof sorted)[number] & {
+    const topicSections: Array<
+      {
+        key: string;
+        name: string;
         landscape: PublishedVideo[];
         portrait: PublishedVideo[];
       }
     > = [];
 
-    for (const category of selected.length > 0 ? selected : sorted) {
-      const available = category.videos.filter((video) => !claimedIds.has(video.id));
-      const categoryLandscape = available
+    for (const topic of topics) {
+      const publicationIds = new Set(topic.publicationIds);
+      const available = browseVideos.filter(
+        (video) => publicationIds.has(video.id) && !claimedIds.has(video.id)
+      );
+      const topicLandscape = available
         .filter(isLandscapeVideo)
         .slice(0, 3);
-      const categoryPortrait = available.filter(isPortraitVideo).slice(0, 5);
-      const assigned = [...categoryLandscape, ...categoryPortrait];
+      const topicPortrait = available.filter(isPortraitVideo).slice(0, 5);
+      const assigned = [...topicLandscape, ...topicPortrait];
       if (assigned.length < 2) continue;
 
       assigned.forEach((video) => claimedIds.add(video.id));
-      categorySections.push({
-        ...category,
-        videos: assigned,
-        landscape: categoryLandscape,
-        portrait: categoryPortrait
+      topicSections.push({
+        key: normalizeCategoryKey(topic.name),
+        name: topic.name,
+        landscape: topicLandscape,
+        portrait: topicPortrait
       });
-      if (categorySections.length === 6) break;
+      if (topicSections.length === 6) break;
     }
 
     return {
       featured,
       popularLandscape,
       popularPortrait,
-      categorySections
+      topicSections
     };
-  }, [browseVideos]);
+  }, [browseVideos, topics]);
   const featuredLandscapeVideos = desktopHomeSections.featured;
   const popularLandscapeVideos = desktopHomeSections.popularLandscape;
   const popularPortraitVideos = desktopHomeSections.popularPortrait;
-  const categorySections = desktopHomeSections.categorySections;
+  const topicSections = desktopHomeSections.topicSections;
   const mobileLeadLandscape = landscapeVideos.slice(0, 2);
   const mobilePortraitGrid = portraitVideos.slice(0, 6);
-  const mobileRemainingLandscape = landscapeVideos.slice(2);
-  const mobileRemainingPortrait = portraitVideos.slice(6);
+  const mobileRemainingLandscape = orderVideosByTopics(landscapeVideos.slice(2), topics);
+  const mobileRemainingPortrait = orderVideosByTopics(portraitVideos.slice(6), topics);
   const baseMobileVideos = useMemo(
     () => mobilePlaybackMode === 'portrait'
       ? portraitVideos
@@ -1702,11 +1694,32 @@ export default function VideoGallery({
             <>
               {searchLoading && <div className="search-results-loading">Searching…</div>}
 
-              {(landscapeVideos.length > 0 || portraitVideos.length > 0) && (
+              {searchTopResult && (
                 <section className="search-results-section" aria-label="Search results">
-                  {landscapeVideos.length > 0 && (
+                  <div
+                    className={`search-top-result search-top-result--${
+                      isPortraitVideo(searchTopResult) ? 'portrait' : 'landscape'
+                    }`}
+                  >
+                    {isPortraitVideo(searchTopResult) ? (
+                      <PortraitFeatureCard
+                        onMetadata={updateInferredAspectRatio}
+                        onOpen={openSearchResult}
+                        onUnavailable={markVideoUnavailable}
+                        video={searchTopResult}
+                      />
+                    ) : (
+                      <LandscapeCard
+                        onMetadata={updateInferredAspectRatio}
+                        onOpen={openSearchResult}
+                        onUnavailable={markVideoUnavailable}
+                        video={searchTopResult}
+                      />
+                    )}
+                  </div>
+                  {remainingSearchLandscapeVideos.length > 0 && (
                     <div className="landscape-grid search-landscape-grid">
-                      {landscapeVideos.map((video) => (
+                      {remainingSearchLandscapeVideos.map((video) => (
                         <LandscapeCard
                           key={video.id}
                           onMetadata={updateInferredAspectRatio}
@@ -1717,9 +1730,9 @@ export default function VideoGallery({
                       ))}
                     </div>
                   )}
-                  {portraitVideos.length > 0 && (
+                  {remainingSearchPortraitVideos.length > 0 && (
                     <div className="search-portrait-grid">
-                      {portraitVideos.map((video) => (
+                      {remainingSearchPortraitVideos.map((video) => (
                         <PortraitFeatureCard
                           key={video.id}
                           onMetadata={updateInferredAspectRatio}
@@ -1883,18 +1896,18 @@ export default function VideoGallery({
               </section>
             )}
 
-            {categorySections.map((category, categoryIndex) => (
+            {topicSections.map((topic, topicIndex) => (
               <section
                 className="library-section category-section"
-                aria-labelledby={`category-title-${categoryIndex}`}
-                key={category.key}
+                aria-labelledby={`topic-title-${topicIndex}`}
+                key={topic.key}
               >
                 <div className="section-heading">
-                  <h2 id={`category-title-${categoryIndex}`}>{category.name}</h2>
+                  <h2 id={`topic-title-${topicIndex}`}>{topic.name}</h2>
                 </div>
-                {category.landscape.length > 0 && (
+                {topic.landscape.length > 0 && (
                   <div className="landscape-grid category-landscape-grid">
-                    {category.landscape.map((video) => (
+                    {topic.landscape.map((video) => (
                       <LandscapeCard
                         key={video.id}
                         onMetadata={updateInferredAspectRatio}
@@ -1905,9 +1918,9 @@ export default function VideoGallery({
                     ))}
                   </div>
                 )}
-                {category.portrait.length > 0 && (
+                {topic.portrait.length > 0 && (
                   <div className="featured-portrait-grid category-portrait-grid aspect-row--spaced">
-                    {category.portrait.map((video) => (
+                    {topic.portrait.map((video) => (
                       <PortraitFeatureCard
                         key={video.id}
                         onMetadata={updateInferredAspectRatio}

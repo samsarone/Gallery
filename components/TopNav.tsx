@@ -437,6 +437,9 @@ export default function TopNav() {
               className="top-nav__brand"
               href="/"
               onClick={() => {
+                setSearchQuery('');
+                setSearchMatches([]);
+                setSearchOpen(false);
                 if (isGalleryLandingPage) {
                   window.dispatchEvent(new Event('samsar:clear-gallery-taxonomy'));
                 }
