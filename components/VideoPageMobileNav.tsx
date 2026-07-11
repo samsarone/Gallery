@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 function SearchIcon() {
@@ -16,27 +16,55 @@ function SearchIcon() {
 export default function VideoPageMobileNav() {
   const router = useRouter();
   const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const searchRef = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    if (searchOpen) inputRef.current?.focus();
+  }, [searchOpen]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!searchRef.current?.contains(event.target as Node)) setSearchOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePress);
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePress);
+  }, [searchOpen]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const normalized = query.trim();
-    if (!normalized) return;
+    if (!normalized) {
+      setSearchOpen(true);
+      return;
+    }
     router.push(`/search?q=${encodeURIComponent(normalized)}`);
   };
 
   return (
     <div className="video-page-mobile-nav">
-      <Link className="video-page-mobile-nav__back" href="/" aria-label="Back to Gallery">
-        <span aria-hidden="true">←</span>
-        <span>Gallery</span>
+      <Link className="video-page-mobile-nav__logo" href="/" aria-label="Samsar Gallery home">
+        The Gallery
       </Link>
 
       <form
-        className="video-page-mobile-nav__search"
+        className={`video-page-mobile-nav__search${searchOpen ? ' is-open' : ''}`}
         onSubmit={handleSubmit}
+        ref={searchRef}
         role="search"
       >
-        <button type="submit" aria-label="Submit search">
+        <button
+          aria-expanded={searchOpen}
+          aria-label={searchOpen ? 'Submit search' : 'Open search'}
+          onClick={(event) => {
+            if (searchOpen) return;
+            event.preventDefault();
+            setSearchOpen(true);
+          }}
+          type="submit"
+        >
           <SearchIcon />
         </button>
         <label className="sr-only" htmlFor="video-page-mobile-search">
@@ -45,7 +73,14 @@ export default function VideoPageMobileNav() {
         <input
           id="video-page-mobile-search"
           onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setSearchOpen(false);
+              inputRef.current?.blur();
+            }
+          }}
           placeholder="Search"
+          ref={inputRef}
           type="search"
           value={query}
         />

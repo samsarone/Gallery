@@ -336,6 +336,7 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [portraitDetailsOpen, setPortraitDetailsOpen] = useState(false);
   const [mobileDescriptionOpen, setMobileDescriptionOpen] = useState(false);
+  const [mobileDescriptionVideo, setMobileDescriptionVideo] = useState<PublishedVideo | null>(null);
   const [mobileLandscape, setMobileLandscape] = useState(false);
   const [mobileFeedStarted, setMobileFeedStarted] = useState(false);
   const [activeMobileFeedId, setActiveMobileFeedId] = useState(video.id);
@@ -435,7 +436,16 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
     setActiveMobileFeedId(video.id);
     setMobileFeedStarted(false);
     setMobileDescriptionOpen(false);
+    setMobileDescriptionVideo(null);
   }, [video.id]);
+
+  useEffect(() => {
+    if (!isMobile || new URLSearchParams(window.location.search).get('comments') !== '1') return;
+    setCommentsOpen(true);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('comments');
+    window.history.replaceState({}, '', url);
+  }, [isMobile, video.id]);
 
   useEffect(() => {
     setShareUrl(window.location.href);
@@ -610,23 +620,29 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [commentsOpen, isMobile, mobileDescriptionOpen, portrait, portraitDetailsOpen]);
 
-  const toggleLike = async () => {
+  const toggleLike = async (targetVideo: PublishedVideo = currentVideo) => {
     if (!isAuthenticated || !authToken || isLiking) return;
     setIsLiking(true);
     try {
-      const response = await fetch(`/api/videos/${encodeURIComponent(video.id)}/like`, {
+      const response = await fetch(`/api/videos/${encodeURIComponent(targetVideo.id)}/like`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${authToken}` }
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || 'Unable to update like.');
-      setCurrentVideo((previous) => {
+      const updateLikedVideo = (previous: PublishedVideo) => {
         const liked = typeof payload?.liked === 'boolean' ? payload.liked : !previous.viewerHasLiked;
         const likes = typeof payload?.stats?.likes === 'number'
           ? payload.stats.likes
           : Math.max(0, previous.stats.likes + (liked ? 1 : -1));
         return { ...previous, viewerHasLiked: liked, stats: { ...previous.stats, likes } };
-      });
+      };
+      setCurrentVideo((previous) => (
+        previous.id === targetVideo.id ? updateLikedVideo(previous) : previous
+      ));
+      setRecommendations((previous) => previous.map((item) => (
+        item.id === targetVideo.id ? updateLikedVideo(item) : item
+      )));
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Unable to update like.');
     } finally {
@@ -634,9 +650,9 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
     }
   };
 
-  const recordShare = () => {
+  const recordShare = (targetVideo: PublishedVideo = currentVideo) => {
     if (!authToken) return;
-    void fetch(`/api/videos/${encodeURIComponent(video.id)}/share`, {
+    void fetch(`/api/videos/${encodeURIComponent(targetVideo.id)}/share`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${authToken}` }
     })
@@ -645,10 +661,12 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
         const payload = await response.json();
         const shares = payload?.stats?.shares;
         if (typeof shares === 'number') {
-          setCurrentVideo((previous) => ({
-            ...previous,
-            stats: { ...previous.stats, shares }
-          }));
+          setCurrentVideo((previous) => previous.id === targetVideo.id ? ({
+            ...previous, stats: { ...previous.stats, shares }
+          }) : previous);
+          setRecommendations((previous) => previous.map((item) => item.id === targetVideo.id ? ({
+            ...item, stats: { ...item.stats, shares }
+          }) : item));
         }
       })
       .catch(() => undefined);
@@ -665,15 +683,18 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
     }
   };
 
-  const shareVideo = async () => {
-    const url = shareUrl || window.location.href;
+  const shareVideo = async (targetVideo: PublishedVideo = currentVideo) => {
+    const url = targetVideo.id === currentVideo.id
+      ? shareUrl || window.location.href
+      : new URL(getVideoPagePath(targetVideo.id), window.location.origin).toString();
     try {
       if (navigator.share) {
-        await navigator.share({ title: currentVideo.title, url });
-        recordShare();
+        await navigator.share({ title: targetVideo.title, url });
       } else {
-        await copyShareLink();
+        await navigator.clipboard.writeText(url);
+        showToast('Link copied to clipboard');
       }
+      recordShare(targetVideo);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
       showToast('Unable to share this video.');
@@ -727,8 +748,9 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
     }
   };
 
-  const openMobileDescription = () => {
+  const openMobileDescription = (targetVideo: PublishedVideo = currentVideo) => {
     setCommentsOpen(false);
+    setMobileDescriptionVideo(targetVideo);
     setMobileDescriptionOpen(true);
   };
 
@@ -794,27 +816,34 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
     </div>
   );
 
-  const mobilePrimaryActions = (
+  const renderMobileActions = (item: PublishedVideo) => (
     <div className={`mobile-video-actions${immersiveMobile ? ' mobile-video-actions--overlay' : ' mobile-video-actions--row'}`}>
       <button
-        aria-label={currentVideo.viewerHasLiked ? 'Unlike video' : 'Like video'}
-        className={currentVideo.viewerHasLiked ? 'is-active' : ''}
+        aria-label={item.viewerHasLiked ? `Unlike ${item.title}` : `Like ${item.title}`}
+        className={item.viewerHasLiked ? 'is-active' : ''}
         disabled={!isAuthenticated || isLiking}
-        onClick={() => void toggleLike()}
+        onClick={() => void toggleLike(item)}
         type="button"
       >
         <span><Icon name="heart" size={22} /></span>
-        <small>{formatCompactNumber(currentVideo.stats.likes)}</small>
+        <small>{formatCompactNumber(item.stats.likes)}</small>
       </button>
-      <button aria-label="Open comments" onClick={openComments} type="button">
+      <button
+        aria-label={`Open comments for ${item.title}`}
+        onClick={() => {
+          if (item.id === currentVideo.id) openComments();
+          else window.location.assign(`${getVideoPagePath(item.id)}?comments=1`);
+        }}
+        type="button"
+      >
         <span><Icon name="message" size={22} /></span>
-        <small>{formatCompactNumber(currentVideo.stats.comments)}</small>
+        <small>{formatCompactNumber(item.stats.comments)}</small>
       </button>
-      <button aria-label="Share video" onClick={() => void shareVideo()} type="button">
+      <button aria-label={`Share ${item.title}`} onClick={() => void shareVideo(item)} type="button">
         <span><Icon name="share" size={21} /></span>
         <small>Share</small>
       </button>
-      <button aria-label="Show video description" onClick={openMobileDescription} type="button">
+      <button aria-label={`Show details for ${item.title}`} onClick={() => openMobileDescription(item)} type="button">
         <span><Icon name="info" size={22} /></span>
         <small>Details</small>
       </button>
@@ -874,7 +903,7 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
                 <a href={getVideoPagePath(item.id)}><h2>{item.title}</h2></a>
               )}
             </div>
-            {isPrimary ? mobilePrimaryActions : null}
+            {renderMobileActions(item)}
           </article>
         );
       })}
@@ -890,7 +919,6 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
         ref={(element) => { mobileFeedItemRefs.current[currentVideo.id] = element; }}
       >
         <div className="mobile-landscape-view__media">
-          <VideoPageMobileNav />
           <video
             autoPlay
             controls
@@ -911,7 +939,7 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
             <span aria-hidden="true">•</span>
             <span>{formatPublishedDate(currentVideo.createdAt)}</span>
           </div>
-          {mobilePrimaryActions}
+          {renderMobileActions(currentVideo)}
         </div>
       </article>
 
@@ -1108,6 +1136,11 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
     </div>
   );
 
+  const descriptionVideo = mobileDescriptionVideo ?? currentVideo;
+  const descriptionCreator = descriptionVideo.creatorHandle
+    ? `@${descriptionVideo.creatorHandle}`
+    : 'Samsar creator';
+
   const mobileDescriptionSheet = (
     <div
       className="mobile-description-sheet"
@@ -1120,7 +1153,7 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
         <span className="mobile-description-sheet__handle" aria-hidden="true" />
         <header>
           <div>
-            <small>{creator}</small>
+            <small>{descriptionCreator}</small>
             <strong>About this video</strong>
           </div>
           <button aria-label="Close video description" onClick={() => setMobileDescriptionOpen(false)} type="button">
@@ -1128,16 +1161,16 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
           </button>
         </header>
         <div className="mobile-description-sheet__scroll">
-          <h2>{currentVideo.title}</h2>
+          <h2>{descriptionVideo.title}</h2>
           <div className="video-page__meta">
-            <span>{formatCompactNumber(currentVideo.stats.views)} views</span>
+            <span>{formatCompactNumber(descriptionVideo.stats.views)} views</span>
             <span aria-hidden="true">•</span>
-            <span>{formatPublishedDate(currentVideo.createdAt)}</span>
+            <span>{formatPublishedDate(descriptionVideo.createdAt)}</span>
           </div>
-          {currentVideo.description ? <p>{currentVideo.description}</p> : <p>No description provided.</p>}
-          {currentVideo.tags?.length ? (
+          {descriptionVideo.description ? <p>{descriptionVideo.description}</p> : <p>No description provided.</p>}
+          {descriptionVideo.tags?.length ? (
             <ul aria-label="Video tags">
-              {currentVideo.tags.slice(0, 10).map((tag) => <li key={tag}>{tag}</li>)}
+              {descriptionVideo.tags.slice(0, 10).map((tag) => <li key={tag}>{tag}</li>)}
             </ul>
           ) : null}
         </div>

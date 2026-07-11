@@ -46,3 +46,7 @@ The processor stores semantic records and watch history in the dedicated
 keywords, views, engagement, completion quality, and freshness. Recommendations
 blend the current video with a signed viewer identifier derived from watch
 history; raw Samsar user IDs are not sent to the gallery index.
+
+## License
+
+Samsar Gallery is released under the [MIT License](LICENSE).

@@ -3555,7 +3555,6 @@ a {
     z-index: 2;
   }
 
-  .video-page-mobile-nav__back,
   .video-page-mobile-nav__search {
     align-items: center;
     background: rgba(5, 10, 17, 0.42);
@@ -3567,27 +3566,38 @@ a {
     -webkit-backdrop-filter: blur(12px) saturate(120%);
   }
 
-  .video-page-mobile-nav__back {
-    border-radius: 999px;
+  .video-page-mobile-nav__logo {
+    background: linear-gradient(110deg, #fff 8%, #a8f0c8 58%, #9bdcff 100%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
     flex: 0 0 auto;
-    font-size: 11px;
-    gap: 6px;
-    padding: 8px 11px;
-  }
-
-  .video-page-mobile-nav__back span:first-child {
-    font-size: 16px;
-    line-height: 0.8;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.055em;
+    padding: 8px 2px;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.48);
   }
 
   .video-page-mobile-nav__search {
     border-radius: 999px;
     gap: 7px;
     margin-left: auto;
-    max-width: 176px;
+    height: 38px;
+    justify-content: center;
+    max-width: 38px;
     min-width: 0;
+    overflow: hidden;
+    padding: 0;
+    transition: max-width 220ms var(--ease), width 220ms var(--ease), padding 220ms var(--ease);
+    width: 38px;
+  }
+
+  .video-page-mobile-nav__search.is-open {
+    justify-content: flex-start;
+    max-width: 176px;
     padding: 0 10px;
-    width: 100%;
+    width: min(176px, calc(100vw - 132px));
   }
 
   .video-page-mobile-nav__search svg {
@@ -3613,7 +3623,16 @@ a {
     font-size: 10px;
     min-width: 0;
     outline: 0;
+    opacity: 0;
     padding: 9px 0;
+    pointer-events: none;
+    transition: opacity 160ms ease;
+    width: 0;
+  }
+
+  .video-page-mobile-nav__search.is-open input {
+    opacity: 1;
+    pointer-events: auto;
     width: 100%;
   }
 
@@ -5133,6 +5152,12 @@ a {
   .mobile-landscape-feed .mobile-feed__back {
     left: 12px;
     top: 12px;
+  }
+}
+
+@media (max-width: 767px) and (orientation: portrait) {
+  body:has(.video-watch--mobile-16x9:not(.video-watch--mobile-landscape)) .top-nav--video-page {
+    display: block;
   }
 }
 
