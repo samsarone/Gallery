@@ -29,19 +29,6 @@ const PAGE_SIZE = 48;
 const INITIAL_TOPIC_LIMIT = 20;
 const MOBILE_CATEGORY_ANIMATION_MS = 240;
 type MobilePlaybackMode = 'portrait' | 'landscape';
-let embeddingRefreshRequested = false;
-
-const requestStaleEmbeddingRefresh = () => {
-  if (embeddingRefreshRequested) return;
-  embeddingRefreshRequested = true;
-  void fetch('/api/gallery/embeddings/refresh', {
-    method: 'POST',
-    cache: 'no-store',
-    keepalive: true
-  }).catch(() => {
-    // Gallery browsing remains available while the processor retries on a later session.
-  });
-};
 
 type IconName =
   | 'arrow'
@@ -832,7 +819,6 @@ export default function VideoGallery({
       });
       setNextCursor(parsed.nextCursor);
       setHasMore(parsed.hasMore);
-      if (!isAdditionalPage) requestStaleEmbeddingRefresh();
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load the gallery.');
     } finally {

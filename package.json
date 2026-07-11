@@ -7,7 +7,6 @@
     "dev": "next dev",
     "refresh:landing-sitemap": "node ./scripts/refresh-landing-blog-sitemap.mjs",
     "build": "next build",
-    "postbuild": "node ./scripts/sync-gallery-embeddings.mjs",
     "start": "next start",
     "lint": "next lint"
   },

@@ -24,20 +24,6 @@ export interface GalleryRecommendationsResponse {
   personalized: boolean;
 }
 
-export interface GallerySyncResponse {
-  status: string;
-  indexed: number;
-  skipped: number;
-  failed: number;
-  refreshed?: boolean;
-  stale?: boolean;
-  scanned?: number;
-  removed?: number;
-  lastUpdatedAt?: string | null;
-  nextUpdateAt?: string | null;
-  [key: string]: unknown;
-}
-
 export interface UpstreamGalleryTaxonomyResponse {
   kind: 'category' | 'topic';
   items: Array<{
@@ -97,14 +83,6 @@ export const sendGalleryView = async (payload: Record<string, unknown>) => {
   const response = await getClient().postV2<Record<string, unknown>>(
     'gallery/events/view',
     payload
-  );
-  return response.data;
-};
-
-export const updateGalleryPublicationEmbeddings = async (): Promise<GallerySyncResponse> => {
-  const response = await getClient().postV2<GallerySyncResponse>(
-    'gallery/publications/update_embeddings',
-    { force: false }
   );
   return response.data;
 };

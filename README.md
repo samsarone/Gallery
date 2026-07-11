@@ -95,7 +95,7 @@ The simplest publishing flow uses the built-in Gallery administration page:
 3. Select **Add publication**, paste the completed session ID, and add or review the title, description, creator handle, tags, aspect ratio, poster, and original prompt.
 4. Select **Publish video**.
 
-The publication appears in the public feed and receives a canonical `/video/{publicationId}` page. The dynamic sitemap sees it without a Gallery rebuild; catalogue classification and search embeddings are updated by the background refresh workflow.
+The publication appears in the public feed and receives a canonical `/video/{publicationId}` page. The dynamic sitemap sees it without a Gallery rebuild; the processor updates that publication's search embedding and catalogue classification asynchronously when it is first accessed.
 
 Editing changes the public metadata. Removing a publication hides it from the Gallery without deleting its source Samsar video session.
 
@@ -110,7 +110,7 @@ For programmatic publishing, use the [Samsar Publications API](https://docs.sams
 3. Set `NEXT_PUBLIC_SITE_URL` to the final public origin, such as `https://gallery.samsar.one`.
 4. Deploy with the standard Next.js build command: `npm run build`.
 
-The `postbuild` step requests a stale-guarded embedding refresh. A temporary processor failure does not fail the frontend deployment; the next eligible Gallery session retries the refresh.
+Gallery builds do not refresh the complete embedding index. Each publication is checked and updated independently by the processor's background access workflow.
 
 ### Any Node.js host
 
