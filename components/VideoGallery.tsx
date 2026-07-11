@@ -232,7 +232,8 @@ function VideoActions({ video, compact, liking, onLike, onShare }: VideoActionsP
   );
 }
 
-interface LandscapeCardProps extends VideoActionsProps {
+interface LandscapeCardProps {
+  video: PublishedVideo;
   onOpen: (video: PublishedVideo) => void;
   onMetadata: (video: PublishedVideo, element: HTMLVideoElement) => void;
   onUnavailable: (id: string) => void;
@@ -240,11 +241,8 @@ interface LandscapeCardProps extends VideoActionsProps {
 
 function LandscapeCard({
   video,
-  liking,
-  onLike,
   onMetadata,
   onOpen,
-  onShare,
   onUnavailable
 }: LandscapeCardProps) {
   return (
@@ -269,13 +267,6 @@ function LandscapeCard({
           <span aria-hidden="true">•</span>
           <span>{formatPublishedDate(video.createdAt)}</span>
         </div>
-        <VideoActions
-          compact
-          liking={liking}
-          onLike={onLike}
-          onShare={onShare}
-          video={video}
-        />
       </div>
     </article>
   );
@@ -1364,11 +1355,8 @@ export default function VideoGallery({
                       {landscapeVideos.map((video) => (
                         <LandscapeCard
                           key={video.id}
-                          liking={likingIds.has(video.id)}
-                          onLike={toggleLike}
                           onMetadata={updateInferredAspectRatio}
                           onOpen={openSearchResult}
-                          onShare={shareVideo}
                           onUnavailable={markVideoUnavailable}
                           video={video}
                         />
@@ -1461,11 +1449,8 @@ export default function VideoGallery({
                           {categoryLandscapeResults.map((video) => (
                             <LandscapeCard
                               key={video.id}
-                              liking={likingIds.has(video.id)}
-                              onLike={toggleLike}
                               onMetadata={updateInferredAspectRatio}
                               onOpen={openVideo}
-                              onShare={shareVideo}
                               onUnavailable={markVideoUnavailable}
                               video={video}
                             />
@@ -1522,11 +1507,8 @@ export default function VideoGallery({
                   {featuredLandscapeVideos.map((video) => (
                     <LandscapeCard
                       key={video.id}
-                      liking={likingIds.has(video.id)}
-                      onLike={toggleLike}
                       onMetadata={updateInferredAspectRatio}
                       onOpen={openVideo}
-                      onShare={shareVideo}
                       onUnavailable={markVideoUnavailable}
                       video={video}
                     />
@@ -1545,11 +1527,8 @@ export default function VideoGallery({
                     {popularLandscapeVideos.map((video) => (
                       <LandscapeCard
                         key={video.id}
-                        liking={likingIds.has(video.id)}
-                        onLike={toggleLike}
                         onMetadata={updateInferredAspectRatio}
                         onOpen={openVideo}
-                        onShare={shareVideo}
                         onUnavailable={markVideoUnavailable}
                         video={video}
                       />
@@ -1597,11 +1576,8 @@ export default function VideoGallery({
                     {category.landscape.map((video) => (
                       <LandscapeCard
                         key={video.id}
-                        liking={likingIds.has(video.id)}
-                        onLike={toggleLike}
                         onMetadata={updateInferredAspectRatio}
                         onOpen={openVideo}
-                        onShare={shareVideo}
                         onUnavailable={markVideoUnavailable}
                         video={video}
                       />
