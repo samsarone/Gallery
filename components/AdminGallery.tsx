@@ -10,6 +10,7 @@ import {
   isPortraitVideo,
   parseVideoCollection
 } from '@/lib/videos';
+import { getVideoPagePath } from '@/lib/site';
 
 type FormMode = 'create' | 'edit';
 
@@ -321,7 +322,7 @@ export default function AdminGallery() {
             </div>
             <span className="admin-date">{formatPublishedDate(video.createdAt)}</span>
             <div className="admin-row__actions">
-              <a href={`/video/${encodeURIComponent(video.id)}`} target="_blank" rel="noreferrer">View</a>
+              <a href={getVideoPagePath(video.id)} target="_blank" rel="noreferrer">View</a>
               <button onClick={() => openEdit(video)} type="button">Edit</button>
               <button className="is-danger" onClick={() => { setError(null); setPendingDelete(video); }} type="button">Delete</button>
             </div>

@@ -6,6 +6,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState
@@ -20,19 +21,24 @@ import type {
   VideoStats
 } from '@/lib/types';
 import {
+  aspectRatioNumber,
   formatCompactNumber,
   formatPublishedDate,
-  normalizeVideo
+  normalizeVideo,
+  parseVideoCollection
 } from '@/lib/videos';
 import BotUserLabel from './BotUserLabel';
+import { getVideoPagePath } from '@/lib/site';
 
-type IconName = 'close' | 'heart' | 'message' | 'send' | 'share';
+type IconName = 'close' | 'copy' | 'heart' | 'message' | 'play' | 'send' | 'share';
 
 function Icon({ name, size = 21 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
     close: <><path d="m18 6-12 12" /><path d="m6 6 12 12" /></>,
+    copy: <><rect height="14" rx="2" width="14" x="8" y="8" /><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" /></>,
     heart: <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z" />,
     message: <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" />,
+    play: <path d="m7 4 13 8-13 8Z" />,
     send: <><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></>,
     share: <><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.6 10.5 6.8-4" /><path d="m8.6 13.5 6.8 4" /></>
   };
@@ -84,6 +90,66 @@ const formatCommentDate = (value: string) => {
   }).format(date);
 };
 
+function ExpandableVideoDescription({ description }: { description: string }) {
+  const descriptionId = useId();
+  const descriptionRef = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [description]);
+
+  useEffect(() => {
+    if (expanded) return;
+    const element = descriptionRef.current;
+    if (!element) return;
+
+    const measure = () => {
+      const current = descriptionRef.current;
+      if (!current) return;
+      const collapsedHeight = current.clientHeight;
+      current.classList.add('video-page__description--expanded');
+      const expandedHeight = current.scrollHeight;
+      current.classList.remove('video-page__description--expanded');
+      setIsOverflowing(expandedHeight - collapsedHeight > 1);
+    };
+
+    measure();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [description, expanded]);
+
+  return (
+    <div className="video-page__description-wrap">
+      <p
+        className={`video-page__description${expanded ? ' video-page__description--expanded' : ''}`}
+        id={descriptionId}
+        ref={descriptionRef}
+      >
+        {description}
+      </p>
+      {(isOverflowing || expanded) ? (
+        <button
+          aria-controls={descriptionId}
+          aria-expanded={expanded}
+          className="video-page__description-toggle"
+          onClick={() => setExpanded((current) => !current)}
+          type="button"
+        >
+          {expanded ? 'View less' : 'View more'}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function CommentItem({ comment, depth = 0 }: { comment: VideoComment; depth?: number }) {
   const replies = comment.replies ?? [];
   return (
@@ -121,6 +187,8 @@ function CommentItem({ comment, depth = 0 }: { comment: VideoComment; depth?: nu
 
 interface CommentsPanelProps {
   comments: VideoComment[];
+  desktopInline?: boolean;
+  emptyMessage?: string;
   error: string | null;
   hasMore: boolean;
   isAuthenticated: boolean;
@@ -135,6 +203,8 @@ interface CommentsPanelProps {
 
 function CommentsPanel({
   comments,
+  desktopInline = false,
+  emptyMessage,
   error,
   hasMore,
   isAuthenticated,
@@ -162,7 +232,7 @@ function CommentsPanel({
   };
 
   return (
-    <div className="video-comments">
+    <div className={`video-comments${desktopInline ? ' video-comments--inline-desktop' : ''}`}>
       <header className="video-comments__header">
         <div>
           <span>Conversation</span>
@@ -175,26 +245,28 @@ function CommentsPanel({
         ) : null}
       </header>
 
-      {isAuthenticated ? (
+      {isAuthenticated || desktopInline ? (
         <form className="video-comments__composer" onSubmit={submit}>
           <span className="video-comments__avatar" aria-hidden="true">
-            {getInitial(getDisplayName(user))}
+            {isAuthenticated ? getInitial(getDisplayName(user)) : 'S'}
           </span>
           <label className="sr-only" htmlFor="video-page-comment">Add a comment</label>
           <input
             id="video-page-comment"
+            disabled={!isAuthenticated || isPosting}
             maxLength={1000}
             onChange={(event) => setText(event.target.value)}
-            placeholder="Add to the conversation…"
+            placeholder={isAuthenticated ? 'Add to the conversation…' : 'Log in to add a comment'}
             ref={inputRef}
             value={text}
           />
           <button
             aria-label="Post comment"
-            disabled={isPosting || text.trim().length === 0}
+            disabled={!isAuthenticated || isPosting || text.trim().length === 0}
             type="submit"
           >
             <Icon name="send" size={18} />
+            <span className="video-comments__submit-label">Comment</span>
           </button>
         </form>
       ) : (
@@ -203,6 +275,12 @@ function CommentsPanel({
           <strong>Log in to comment</strong>
         </button>
       )}
+
+      {desktopInline && !isAuthenticated ? (
+        <p className="video-comments__login-note">
+          <button onClick={openLogin} type="button">Log in</button> to join the conversation.
+        </p>
+      ) : null}
 
       <div className="video-comments__list" aria-live="polite">
         {comments.map((comment) => <CommentItem comment={comment} key={comment.id} />)}
@@ -214,9 +292,15 @@ function CommentsPanel({
         ) : null}
         {!isLoading && comments.length === 0 && !error ? (
           <div className="video-comments__empty">
-            <Icon name="message" size={25} />
-            <strong>Start the conversation</strong>
-            <span>Share what stood out to you.</span>
+            {emptyMessage ? (
+              <strong>{emptyMessage}</strong>
+            ) : (
+              <>
+                <Icon name="message" size={25} />
+                <strong>Start the conversation</strong>
+                <span>Share what stood out to you.</span>
+              </>
+            )}
           </div>
         ) : null}
         {error ? <p className="video-comments__error" role="alert">{error}</p> : null}
@@ -251,9 +335,19 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
   const [commentPosting, setCommentPosting] = useState(false);
   const [commentsError, setCommentsError] = useState<string | null>(null);
   const [isLiking, setIsLiking] = useState(false);
+  const [recommendations, setRecommendations] = useState<PublishedVideo[]>([]);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
+  const [recommendationsError, setRecommendationsError] = useState(false);
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const [shareUrl, setShareUrl] = useState('');
   const [toast, setToast] = useState<string | null>(null);
+  const shareMenuId = useId();
   const commentsSectionRef = useRef<HTMLDivElement>(null);
+  const shareMenuRef = useRef<HTMLDivElement>(null);
   const isAuthenticated = authReady && Boolean(authToken && user);
+  const aspectRatio = aspectRatioNumber(currentVideo.aspectRatio);
+  const isSixteenNine = aspectRatio !== null && Math.abs(aspectRatio - (16 / 9)) < 0.02;
+  const desktopSixteenNine = isSixteenNine && !isMobile;
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -297,6 +391,59 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
     media.addEventListener('change', apply);
     return () => media.removeEventListener('change', apply);
   }, [portrait]);
+
+  useEffect(() => {
+    setShareUrl(window.location.href);
+  }, [currentVideo.id]);
+
+  useEffect(() => {
+    if (!shareMenuOpen) return;
+    const closeMenu = (event: PointerEvent) => {
+      if (!shareMenuRef.current?.contains(event.target as Node)) setShareMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShareMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', closeMenu);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeMenu);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [shareMenuOpen]);
+
+  useEffect(() => {
+    if (!isSixteenNine) {
+      setRecommendations([]);
+      setRecommendationsError(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const load = async () => {
+      setRecommendationsLoading(true);
+      setRecommendationsError(false);
+      try {
+        const query = new URLSearchParams({ videoId: video.id, limit: '14' });
+        const response = await fetch(`/api/gallery/recommendations?${query.toString()}`, {
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error('Recommendations unavailable');
+        const parsed = parseVideoCollection(await response.json());
+        setRecommendations(parsed.items.filter((item) => item.id !== video.id));
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          setRecommendations([]);
+          setRecommendationsError(true);
+        }
+      } finally {
+        if (!controller.signal.aborted) setRecommendationsLoading(false);
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [isSixteenNine, video.id]);
 
   useEffect(() => {
     if (!authReady) return;
@@ -384,33 +531,45 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
     }
   };
 
+  const recordShare = () => {
+    if (!authToken) return;
+    void fetch(`/api/videos/${encodeURIComponent(video.id)}/share`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${authToken}` }
+    })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const payload = await response.json();
+        const shares = payload?.stats?.shares;
+        if (typeof shares === 'number') {
+          setCurrentVideo((previous) => ({
+            ...previous,
+            stats: { ...previous.stats, shares }
+          }));
+        }
+      })
+      .catch(() => undefined);
+  };
+
+  const copyShareLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl || window.location.href);
+      setShareMenuOpen(false);
+      showToast('Link copied to clipboard');
+      recordShare();
+    } catch {
+      showToast('Unable to copy the link.');
+    }
+  };
+
   const shareVideo = async () => {
-    const url = window.location.href;
+    const url = shareUrl || window.location.href;
     try {
       if (navigator.share) {
         await navigator.share({ title: currentVideo.title, url });
+        recordShare();
       } else {
-        await navigator.clipboard.writeText(url);
-        showToast('Link copied to clipboard');
-      }
-
-      if (authToken) {
-        void fetch(`/api/videos/${encodeURIComponent(video.id)}/share`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${authToken}` }
-        })
-          .then(async (response) => {
-            if (!response.ok) return;
-            const payload = await response.json();
-            const shares = payload?.stats?.shares;
-            if (typeof shares === 'number') {
-              setCurrentVideo((previous) => ({
-                ...previous,
-                stats: { ...previous.stats, shares }
-              }));
-            }
-          })
-          .catch(() => undefined);
+        await copyShareLink();
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -466,6 +625,8 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
   const commentsPanel = (
     <CommentsPanel
       comments={comments}
+      desktopInline={desktopSixteenNine}
+      emptyMessage={desktopSixteenNine ? 'No comments yet' : undefined}
       error={commentsError}
       hasMore={hasMoreComments}
       isAuthenticated={isAuthenticated}
@@ -506,22 +667,149 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
     </div>
   );
 
+  const encodedShareUrl = encodeURIComponent(shareUrl);
+  const encodedShareTitle = encodeURIComponent(currentVideo.title);
+  const socialShareOptions = useMemo(() => [
+    {
+      label: 'X',
+      href: `https://twitter.com/intent/tweet?url=${encodedShareUrl}&text=${encodedShareTitle}`
+    },
+    {
+      label: 'Facebook',
+      href: `https://www.facebook.com/sharer/sharer.php?u=${encodedShareUrl}`
+    },
+    {
+      label: 'LinkedIn',
+      href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedShareUrl}`
+    },
+    {
+      label: 'WhatsApp',
+      href: `https://wa.me/?text=${encodedShareTitle}%20${encodedShareUrl}`
+    }
+  ], [encodedShareTitle, encodedShareUrl]);
+
+  const titleActions = (
+    <div className="video-page__title-actions">
+      <button
+        aria-label={currentVideo.viewerHasLiked ? 'Unlike video' : 'Like video'}
+        className={currentVideo.viewerHasLiked ? 'is-active' : ''}
+        disabled={!isAuthenticated || isLiking}
+        onClick={() => void toggleLike()}
+        title={!authReady ? 'Checking sign-in status' : !isAuthenticated ? 'Log in to like this video' : undefined}
+        type="button"
+      >
+        <Icon name="heart" size={20} />
+        <span>{formatCompactNumber(currentVideo.stats.likes)}</span>
+      </button>
+      <div className="video-page__share" ref={shareMenuRef}>
+        <button
+          aria-controls={shareMenuId}
+          aria-expanded={shareMenuOpen}
+          aria-haspopup="menu"
+          aria-label="Share video"
+          onClick={() => setShareMenuOpen((current) => !current)}
+          title="Share video"
+          type="button"
+        >
+          <Icon name="share" size={19} />
+        </button>
+        {shareMenuOpen ? (
+          <div className="video-page__share-menu" id={shareMenuId} role="menu">
+            <span>Share this video</span>
+            <div className="video-page__share-socials">
+              {socialShareOptions.map((option) => (
+                <a
+                  href={option.href}
+                  key={option.label}
+                  onClick={() => {
+                    setShareMenuOpen(false);
+                    recordShare();
+                  }}
+                  rel="noopener noreferrer"
+                  role="menuitem"
+                  target="_blank"
+                >
+                  {option.label}
+                </a>
+              ))}
+            </div>
+            <button onClick={() => void copyShareLink()} role="menuitem" type="button">
+              <Icon name="copy" size={16} />
+              Copy link
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  const recommendationsPanel = (
+    <aside className="video-page__recommendations" aria-label="Recommended videos">
+      <div className="video-page__recommendations-heading">
+        <strong>More to watch</strong>
+      </div>
+      {recommendations.map((item) => (
+        <a href={getVideoPagePath(item.id)} key={item.id}>
+          <span className="video-page__recommendation-media">
+            <video muted playsInline poster={item.posterUrl} preload="none" />
+            <span><Icon name="play" size={14} /></span>
+          </span>
+          <span className="video-page__recommendation-copy">
+            <strong>{item.title}</strong>
+            <small>{item.creatorHandle ? `@${item.creatorHandle}` : 'Samsar creator'}</small>
+            <small>{formatCompactNumber(item.stats.views)} views</small>
+          </span>
+        </a>
+      ))}
+      {recommendationsLoading ? (
+        <div className="video-page__recommendations-state">Finding the next stories…</div>
+      ) : null}
+      {!recommendationsLoading && recommendationsError ? (
+        <div className="video-page__recommendations-state">Recommendations are temporarily unavailable.</div>
+      ) : null}
+      {!recommendationsLoading && !recommendationsError && recommendations.length === 0 ? (
+        <div className="video-page__recommendations-state">No related videos yet.</div>
+      ) : null}
+    </aside>
+  );
+
   const details = (
     <div className="video-page__body">
       <div className="video-page__eyebrow">{creator}</div>
-      <h1>{currentVideo.title}</h1>
+      {desktopSixteenNine ? (
+        <div className="video-page__title-row">
+          <h1>{currentVideo.title}</h1>
+          {titleActions}
+        </div>
+      ) : <h1>{currentVideo.title}</h1>}
       <div className="video-page__meta">
         <span>{formatCompactNumber(currentVideo.stats.views)} views</span>
         <span aria-hidden="true">•</span>
         <span>{formatPublishedDate(currentVideo.createdAt)}</span>
       </div>
-      {currentVideo.description ? <p className="video-page__description">{currentVideo.description}</p> : null}
+      {currentVideo.description ? (
+        desktopSixteenNine
+          ? <ExpandableVideoDescription description={currentVideo.description} />
+          : <p className="video-page__description">{currentVideo.description}</p>
+      ) : null}
+      {desktopSixteenNine ? (
+        <div className="video-comments-inline video-comments-inline--details" ref={commentsSectionRef}>
+          {commentsPanel}
+        </div>
+      ) : null}
       {currentVideo.tags?.length ? (
         <ul className="video-page__tags" aria-label="Video tags">
           {currentVideo.tags.slice(0, 10).map((tag) => <li key={tag}>{tag}</li>)}
         </ul>
       ) : null}
-      {!portrait ? actionButtons : null}
+      {!portrait && !desktopSixteenNine ? actionButtons : null}
+    </div>
+  );
+
+  const landscapeMedia = (
+    <div className="video-page__media">
+      <VideoPageMobileNav />
+      <video controls playsInline poster={currentVideo.posterUrl} preload="metadata" src={currentVideo.videoUrl} />
     </div>
   );
 
@@ -551,16 +839,23 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
           {details}
         </>
       ) : (
-        <>
-          <div className="video-page__media">
-            <VideoPageMobileNav />
-            <video controls playsInline poster={currentVideo.posterUrl} preload="metadata" src={currentVideo.videoUrl} />
+        desktopSixteenNine ? (
+          <div className="video-watch__landscape-layout">
+            <div className="video-watch__landscape-main">
+              {landscapeMedia}
+              {details}
+            </div>
+            {recommendationsPanel}
           </div>
-          {details}
-          <div className="video-comments-inline" ref={commentsSectionRef}>
-            {!isMobile ? commentsPanel : null}
-          </div>
-        </>
+        ) : (
+          <>
+            {landscapeMedia}
+            {details}
+            <div className="video-comments-inline" ref={commentsSectionRef}>
+              {!isMobile ? commentsPanel : null}
+            </div>
+          </>
+        )
       )}
 
       {isMobile && commentsOpen ? (

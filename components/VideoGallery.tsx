@@ -1,6 +1,7 @@
 /* eslint-disable jsx-a11y/media-has-caption */
 'use client';
 
+import { useRouter } from 'next/navigation';
 import {
   type ReactNode,
   useCallback,
@@ -18,6 +19,7 @@ import {
   parseVideoCollection
 } from '@/lib/videos';
 import { getExistingAuthToken } from '@/lib/auth';
+import { getVideoPagePath } from '@/lib/site';
 
 const PAGE_SIZE = 48;
 type MobilePlaybackMode = 'portrait' | 'landscape';
@@ -86,7 +88,7 @@ const openAuth = () => {
 };
 
 const getShareUrl = (video: PublishedVideo) => {
-  return new URL(`/video/${encodeURIComponent(video.id)}`, window.location.origin).toString();
+  return new URL(getVideoPagePath(video.id), window.location.origin).toString();
 };
 
 const mediaCreator = (video: PublishedVideo) =>
@@ -567,6 +569,7 @@ export default function VideoGallery({
   initialQuery?: string;
   searchMode?: boolean;
 }) {
+  const router = useRouter();
   const [videos, setVideos] = useState<PublishedVideo[]>([]);
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<PublishedVideo | null>(null);
@@ -699,14 +702,6 @@ export default function VideoGallery({
     mediaQuery.addEventListener('change', updateViewport);
     return () => mediaQuery.removeEventListener('change', updateViewport);
   }, []);
-
-  useEffect(() => {
-    if (mobilePlaybackMode) return;
-    const requestedId = new URLSearchParams(window.location.search).get('videoId');
-    if (!requestedId || videos.length === 0) return;
-    const requested = videos.find((video) => video.id === requestedId);
-    if (requested) setSelectedVideo(requested);
-  }, [mobilePlaybackMode, videos]);
 
   useEffect(() => {
     const normalizedQuery = query.trim();
@@ -1281,43 +1276,22 @@ export default function VideoGallery({
   }, [showToast]);
 
   const startMobilePlayback = useCallback((video: PublishedVideo) => {
-    const mode: MobilePlaybackMode = isPortraitVideo(video) ? 'portrait' : 'landscape';
-    const categoryCandidates = selectedCategoryItem
-      ? categoryResults.filter((candidate) => isPortraitVideo(candidate) === (mode === 'portrait'))
-      : null;
-    const candidates = categoryCandidates ?? (mode === 'portrait' ? portraitVideos : landscapeVideos);
-    mobileViewStartedRef.current.clear();
-    mobileProgressReportedRef.current.clear();
-    setMobileQueue(mergeUniqueVideos([video], candidates));
-    setActiveMobileId(video.id);
-    setMobilePlaybackMode(mode);
-    const url = new URL(window.location.href);
-    url.searchParams.set('videoId', video.id);
-    window.history.replaceState({}, '', url);
-  }, [categoryResults, landscapeVideos, portraitVideos, selectedCategoryItem]);
+    router.push(getVideoPagePath(video.id));
+  }, [router]);
 
   const closeMobilePlayback = useCallback(() => {
     Object.values(mobileVideoRefs.current).forEach((element) => element?.pause());
     setMobilePlaybackMode(null);
     setMobileQueue([]);
     setActiveMobileId(null);
-    const url = new URL(window.location.href);
-    url.searchParams.delete('videoId');
-    window.history.replaceState({}, '', url);
   }, []);
 
   const openVideo = useCallback((video: PublishedVideo) => {
-    setSelectedVideo(video);
-    const url = new URL(window.location.href);
-    url.searchParams.set('videoId', video.id);
-    window.history.replaceState({}, '', url);
-  }, []);
+    router.push(getVideoPagePath(video.id));
+  }, [router]);
 
   const closeVideo = useCallback(() => {
     setSelectedVideo(null);
-    const url = new URL(window.location.href);
-    url.searchParams.delete('videoId');
-    window.history.replaceState({}, '', url);
   }, []);
 
   const selectCategory = useCallback((category: string | null) => {
@@ -1325,7 +1299,6 @@ export default function VideoGallery({
     setMobileCategoryOpen(false);
     setSelectedVideo(null);
     const url = new URL(window.location.href);
-    url.searchParams.delete('videoId');
     if (category) {
       url.searchParams.set('category', category);
     } else {
