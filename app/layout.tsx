@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import TopNav from '@/components/TopNav';
-import { getSiteUrl } from '@/lib/site';
+import { getSiteUrl, SITE_LANGUAGE, SITE_LOCALE } from '@/lib/site';
 
 const siteUrl = getSiteUrl();
 const metadataBase = new URL(siteUrl);
@@ -22,6 +22,7 @@ export const metadata: Metadata = {
     description: ogDescription,
     url: siteUrl,
     siteName: 'The Gallery',
+    locale: SITE_LOCALE,
     type: 'website',
     images: [
       {
@@ -46,7 +47,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang={SITE_LANGUAGE}>
       <body>
         <TopNav />
         {children}

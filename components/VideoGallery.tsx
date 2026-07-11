@@ -274,13 +274,11 @@ function LandscapeCard({
 
 function PortraitFeatureCard({
   video,
-  rank,
   onOpen,
   onMetadata,
   onUnavailable
 }: {
   video: PublishedVideo;
-  rank: number;
   onOpen: (video: PublishedVideo) => void;
   onMetadata: (video: PublishedVideo, element: HTMLVideoElement) => void;
   onUnavailable: (id: string) => void;
@@ -294,7 +292,6 @@ function PortraitFeatureCard({
           video={video}
         />
         <span className="portrait-feature-card__shade" />
-        <span className="portrait-feature-card__rank">{rank}</span>
         <span className="portrait-feature-card__play"><Icon name="play" size={18} /></span>
         <span className="portrait-feature-card__body">
           <strong>{video.title}</strong>
@@ -1365,13 +1362,12 @@ export default function VideoGallery({
                   )}
                   {portraitVideos.length > 0 && (
                     <div className="search-portrait-grid">
-                      {portraitVideos.map((video, index) => (
+                      {portraitVideos.map((video) => (
                         <PortraitFeatureCard
                           key={video.id}
                           onMetadata={updateInferredAspectRatio}
                           onOpen={openSearchResult}
                           onUnavailable={markVideoUnavailable}
-                          rank={index + 1}
                           video={video}
                         />
                       ))}
@@ -1466,13 +1462,12 @@ export default function VideoGallery({
                           <span>{formatCompactNumber(categoryPortraitResults.length)} videos</span>
                         </div>
                         <div className="featured-portrait-grid category-results__portrait-grid">
-                          {categoryPortraitResults.map((video, index) => (
+                          {categoryPortraitResults.map((video) => (
                             <PortraitFeatureCard
                               key={video.id}
                               onMetadata={updateInferredAspectRatio}
                               onOpen={openVideo}
                               onUnavailable={markVideoUnavailable}
-                              rank={index + 1}
                               video={video}
                             />
                           ))}
@@ -1537,13 +1532,12 @@ export default function VideoGallery({
                 )}
                 {popularPortraitVideos.length > 0 && (
                   <div className="featured-portrait-grid aspect-row--spaced">
-                    {popularPortraitVideos.map((video, index) => (
+                    {popularPortraitVideos.map((video) => (
                       <PortraitFeatureCard
                         key={video.id}
                         onMetadata={updateInferredAspectRatio}
                         onOpen={openVideo}
                         onUnavailable={markVideoUnavailable}
-                        rank={index + 1}
                         video={video}
                       />
                     ))}
@@ -1586,13 +1580,12 @@ export default function VideoGallery({
                 )}
                 {category.portrait.length > 0 && (
                   <div className="featured-portrait-grid category-portrait-grid aspect-row--spaced">
-                    {category.portrait.map((video, index) => (
+                    {category.portrait.map((video) => (
                       <PortraitFeatureCard
                         key={video.id}
                         onMetadata={updateInferredAspectRatio}
                         onOpen={openVideo}
                         onUnavailable={markVideoUnavailable}
-                        rank={index + 1}
                         video={video}
                       />
                     ))}

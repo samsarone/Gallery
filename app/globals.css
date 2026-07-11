@@ -1848,23 +1848,6 @@ a {
   position: absolute;
 }
 
-.portrait-feature-card__rank {
-  align-items: center;
-  background: rgba(7, 16, 26, 0.74);
-  border: 1px solid rgba(70, 191, 255, 0.28);
-  border-radius: 50%;
-  display: flex;
-  font-size: 10px;
-  font-weight: 700;
-  height: 30px;
-  justify-content: center;
-  left: 12px;
-  position: absolute;
-  top: 12px;
-  width: 30px;
-  backdrop-filter: blur(8px);
-}
-
 .portrait-feature-card__play,
 .mobile-browse-card__play {
   align-items: center;

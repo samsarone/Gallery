@@ -1,7 +1,12 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { fetchPublicVideo } from '@/lib/publicVideo';
-import { getSiteUrl, getVideoPagePath } from '@/lib/site';
+import {
+  getSiteUrl,
+  getVideoOgImageUrl,
+  getVideoPageUrl,
+  SITE_LOCALE
+} from '@/lib/site';
 import { isPortraitVideo } from '@/lib/videos';
 import VideoPageExperience from '@/components/VideoPageExperience';
 
@@ -20,9 +25,6 @@ const getVideoDescription = (description: string, title: string): string => {
   return `Watch ${title} on Samsar Gallery.`;
 };
 
-const getOgImageUrl = (videoId: string): string =>
-  new URL(`/og/video/${encodeURIComponent(videoId)}`, getSiteUrl()).toString();
-
 export async function generateMetadata({ params }: VideoPageProps): Promise<Metadata> {
   try {
     const video = await fetchPublicVideo(params.videoId);
@@ -35,8 +37,8 @@ export async function generateMetadata({ params }: VideoPageProps): Promise<Meta
 
     const title = `${video.title} | Samsar Gallery`;
     const description = getVideoDescription(video.description, video.title);
-    const url = new URL(getVideoPagePath(video.id), getSiteUrl()).toString();
-    const image = getOgImageUrl(video.id);
+    const url = getVideoPageUrl(video.id);
+    const image = getVideoOgImageUrl(video.id);
 
     return {
       title,
@@ -47,6 +49,7 @@ export async function generateMetadata({ params }: VideoPageProps): Promise<Meta
         description,
         url,
         siteName: 'Samsar Gallery',
+        locale: SITE_LOCALE,
         type: 'video.other',
         videos: [{ url: video.videoUrl, type: 'video/mp4' }],
         images: [{ url: image, width: 1200, height: 630, alt: `${video.title} — Samsar Gallery` }]
@@ -72,7 +75,7 @@ export default async function VideoPage({ params }: VideoPageProps) {
 
   const portrait = isPortraitVideo(video);
   const creator = video.creatorHandle ? `@${video.creatorHandle}` : 'Samsar creator';
-  const canonicalUrl = new URL(getVideoPagePath(video.id), getSiteUrl()).toString();
+  const canonicalUrl = getVideoPageUrl(video.id);
   const structuredData = JSON.stringify({
     '@context': 'https://schema.org',
     '@type': 'VideoObject',

@@ -25,6 +25,12 @@ deleting revokes the publication without deleting the source session.
 
 ## Search, recommendations, and indexing
 
+Every valid public publication is available at the server-rendered canonical URL
+`/video/{publicationId}`. The dynamic `/sitemap.xml` reads all publication pages
+from the public API on every request, so newly published videos appear without a
+gallery rebuild. Gallery routes and indexing metadata are English-only; localized
+or language-prefixed gallery URLs are not generated.
+
 All Samsar API calls stay on the Next.js server. Configure these variables in
 Vercel Production and in the ignored local `.env.production` file:
 
