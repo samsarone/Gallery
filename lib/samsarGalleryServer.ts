@@ -5,7 +5,11 @@ import SamsarClient from 'samsar-js';
 import type { NextRequest } from 'next/server';
 import { getRequestAuthToken } from './serverAdmin';
 import { verifyAuthToken } from './auth';
-import type { AuthenticatedUser, PublishedVideo } from './types';
+import type {
+  AuthenticatedUser,
+  GalleryTaxonomyKind,
+  PublishedVideo
+} from './types';
 import { SAMSAR_V1_API_SERVER } from './config';
 
 export interface GallerySearchResponse {
@@ -32,6 +36,27 @@ export interface GallerySyncResponse {
   lastUpdatedAt?: string | null;
   nextUpdateAt?: string | null;
   [key: string]: unknown;
+}
+
+export interface UpstreamGalleryTaxonomyResponse {
+  kind: 'category' | 'topic';
+  items: Array<{
+    name: string;
+    publication_count?: number;
+    publication_ids?: string[];
+  }>;
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface UpstreamGalleryTaxonomyPublicationsResponse {
+  kind: 'category' | 'topic';
+  name: string;
+  publication_ids: string[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 const getClient = () => {
@@ -80,6 +105,40 @@ export const updateGalleryPublicationEmbeddings = async (): Promise<GallerySyncR
   const response = await getClient().postV2<GallerySyncResponse>(
     'gallery/publications/update_embeddings',
     { force: false }
+  );
+  return response.data;
+};
+
+export const loadGalleryTaxonomy = async (
+  kind: GalleryTaxonomyKind,
+  payload: { limit?: number; offset?: number; includePublicationIds?: boolean } = {}
+): Promise<UpstreamGalleryTaxonomyResponse> => {
+  const response = await getClient().getV2<UpstreamGalleryTaxonomyResponse>(
+    `gallery/taxonomy/${kind}`,
+    {
+      query: {
+        limit: payload.limit ?? 500,
+        offset: payload.offset ?? 0,
+        include_publication_ids: payload.includePublicationIds ?? true
+      }
+    }
+  );
+  return response.data;
+};
+
+export const loadGalleryTaxonomyPublicationIds = async (
+  kind: GalleryTaxonomyKind,
+  name: string,
+  payload: { limit?: number; offset?: number } = {}
+): Promise<UpstreamGalleryTaxonomyPublicationsResponse> => {
+  const response = await getClient().getV2<UpstreamGalleryTaxonomyPublicationsResponse>(
+    `gallery/taxonomy/${kind}/${encodeURIComponent(name)}/publications`,
+    {
+      query: {
+        limit: payload.limit ?? 48,
+        offset: payload.offset ?? 0
+      }
+    }
   );
   return response.data;
 };

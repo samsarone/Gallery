@@ -52,3 +52,17 @@ export interface AuthenticatedUser {
   isAdminUser?: boolean;
   [key: string]: unknown;
 }
+
+export type GalleryTaxonomyKind = 'categories' | 'topics';
+
+export interface GalleryTaxonomyItem {
+  name: string;
+  publicationCount: number;
+  publicationIds: string[];
+}
+
+export interface GalleryTaxonomyResponse {
+  kind: 'category' | 'topic';
+  items: GalleryTaxonomyItem[];
+  total: number;
+}

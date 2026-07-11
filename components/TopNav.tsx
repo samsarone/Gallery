@@ -420,11 +420,11 @@ export default function TopNav() {
           <div className="top-nav__leading">
             {isGalleryLandingPage ? (
               <button
-                aria-controls="mobile-category-drawer"
+                aria-controls="mobile-topic-drawer"
                 aria-haspopup="dialog"
-                aria-label="Open video categories"
+                aria-label="Open video topics"
                 className="top-nav__category-toggle"
-                onClick={() => window.dispatchEvent(new Event('samsar:open-mobile-categories'))}
+                onClick={() => window.dispatchEvent(new Event('samsar:open-mobile-topics'))}
                 type="button"
               >
                 <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
