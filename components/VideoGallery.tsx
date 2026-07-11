@@ -25,7 +25,8 @@ import {
 import { getExistingAuthToken } from '@/lib/auth';
 import { getVideoPagePath } from '@/lib/site';
 
-const PAGE_SIZE = 48;
+const PUBLICATION_PAGE_SIZE = 100;
+const TAXONOMY_PAGE_SIZE = 48;
 const INITIAL_TOPIC_LIMIT = 20;
 const MOBILE_CATEGORY_ANIMATION_MS = 240;
 type MobilePlaybackMode = 'portrait' | 'landscape';
@@ -741,10 +742,8 @@ export default function VideoGallery({
   const [recommendationsError, setRecommendationsError] = useState(false);
   const [recommendationsLoading, setRecommendationsLoading] = useState(false);
   const [mobileQueue, setMobileQueue] = useState<PublishedVideo[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(true);
+  const [totalVideoCount, setTotalVideoCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [unavailableVideoIds, setUnavailableVideoIds] = useState<Set<string>>(new Set());
@@ -793,43 +792,63 @@ export default function VideoGallery({
     setActiveMobileId((current) => (current === id ? null : current));
   }, []);
 
-  const loadVideos = useCallback(async (cursor?: string | null) => {
-    const isAdditionalPage = Boolean(cursor);
-    isAdditionalPage ? setLoadingMore(true) : setLoading(true);
+  const loadVideos = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true);
     setError(null);
 
     try {
-      const params = new URLSearchParams({ limit: `${PAGE_SIZE}` });
-      if (cursor) params.set('cursor', cursor);
-      const response = await fetch(`/api/videos?${params.toString()}`, {
-        cache: 'no-store'
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(
-          typeof payload?.error === 'string' ? payload.error : 'Unable to load the gallery.'
-        );
-      }
+      const loadedVideos = new Map<string, PublishedVideo>();
+      const visitedCursors = new Set<string>();
+      let cursor: string | null = null;
+      let resolvedTotalCount: number | null = null;
 
-      const parsed = parseVideoCollection(payload);
-      setVideos((current) => {
-        const map = new Map(current.map((video) => [video.id, video]));
-        parsed.items.forEach((video) => map.set(video.id, video));
-        return Array.from(map.values());
-      });
-      setNextCursor(parsed.nextCursor);
-      setHasMore(parsed.hasMore);
+      do {
+        const params = new URLSearchParams({ limit: `${PUBLICATION_PAGE_SIZE}` });
+        if (cursor) params.set('cursor', cursor);
+        const response = await fetch(`/api/videos?${params.toString()}`, {
+          cache: 'no-store',
+          signal
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(
+            typeof payload?.error === 'string' ? payload.error : 'Unable to load the gallery.'
+          );
+        }
+
+        const parsed = parseVideoCollection(payload);
+        parsed.items.forEach((video) => loadedVideos.set(video.id, video));
+        if (resolvedTotalCount === null && parsed.totalCount !== null) {
+          resolvedTotalCount = parsed.totalCount;
+        }
+
+        const nextCursor = parsed.hasMore ? parsed.nextCursor : null;
+        if (!nextCursor) break;
+        if (visitedCursors.has(nextCursor)) {
+          throw new Error('The gallery returned a repeated pagination cursor.');
+        }
+        visitedCursors.add(nextCursor);
+        cursor = nextCursor;
+      } while (!signal?.aborted);
+
+      if (signal?.aborted) return;
+      const allVideos = Array.from(loadedVideos.values());
+      setVideos(allVideos);
+      setTotalVideoCount(resolvedTotalCount ?? allVideos.length);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Unable to load the gallery.');
+      if (!(loadError instanceof DOMException && loadError.name === 'AbortError')) {
+        setError(loadError instanceof Error ? loadError.message : 'Unable to load the gallery.');
+      }
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void loadVideos();
+    const controller = new AbortController();
+    void loadVideos(controller.signal);
     return () => {
+      controller.abort();
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       if (mobileCategoryTimerRef.current) clearTimeout(mobileCategoryTimerRef.current);
     };
@@ -921,7 +940,7 @@ export default function VideoGallery({
       setTaxonomyResultError(null);
       setTaxonomyResultLoading(true);
       try {
-        const params = new URLSearchParams({ limit: `${PAGE_SIZE}`, offset: '0' });
+        const params = new URLSearchParams({ limit: `${TAXONOMY_PAGE_SIZE}`, offset: '0' });
         const response = await fetch(
           `/api/gallery/taxonomy/${kind}/${encodeURIComponent(name)}/publications?${params.toString()}`,
           { cache: 'no-store', signal: controller.signal }
@@ -1353,11 +1372,7 @@ export default function VideoGallery({
       }
     });
 
-    const activeIndex = mobileVideos.findIndex((video) => video.id === activeMobileId);
-    if (activeIndex >= mobileVideos.length - 3 && hasMore && !loadingMore) {
-      void loadVideos(nextCursor);
-    }
-  }, [activeMobileId, hasMore, isMobile, loadVideos, loadingMore, mobilePlaybackMode, mobileVideos, muted, nextCursor]);
+  }, [activeMobileId, isMobile, mobilePlaybackMode, mobileVideos, muted]);
 
   const updateInferredAspectRatio = useCallback(
     (_video: PublishedVideo, _element: HTMLVideoElement) => {
@@ -1571,7 +1586,7 @@ export default function VideoGallery({
     setTaxonomyResultLoadingMore(true);
     try {
       const params = new URLSearchParams({
-        limit: `${PAGE_SIZE}`,
+        limit: `${TAXONOMY_PAGE_SIZE}`,
         offset: `${taxonomyResult.nextOffset}`
       });
       const response = await fetch(
@@ -1620,18 +1635,10 @@ export default function VideoGallery({
   const selectedCollectionCount =
     taxonomyResult?.total ?? selectedTaxonomyItem?.publicationCount ?? 0;
   const selectedCollectionLabel = selectedTopic ? 'Topic' : 'Category';
-  const browseHasMore = hasTaxonomySelection
-    ? Boolean(taxonomyResult?.hasMore)
-    : hasMore;
-  const browseLoadingMore = hasTaxonomySelection
-    ? taxonomyResultLoadingMore
-    : loadingMore;
+  const browseHasMore = hasTaxonomySelection && Boolean(taxonomyResult?.hasMore);
+  const browseLoadingMore = taxonomyResultLoadingMore;
   const loadMoreBrowse = () => {
-    if (hasTaxonomySelection) {
-      void loadMoreTaxonomyResults();
-    } else {
-      void loadVideos(nextCursor);
-    }
+    if (hasTaxonomySelection) void loadMoreTaxonomyResults();
   };
 
   const isInitialLoading =
@@ -1745,7 +1752,7 @@ export default function VideoGallery({
               type="button"
             >
               <span>All videos</span>
-              <small>{formatCompactNumber(videos.length)}</small>
+              <small>{formatCompactNumber(totalVideoCount ?? videos.length)}</small>
             </button>
             <div className="desktop-category-nav__label">Popular topics</div>
             <div className="desktop-category-nav__list">
@@ -1958,7 +1965,7 @@ export default function VideoGallery({
                   type="button"
                 >
                   <span>All videos</span>
-                  <small>{formatCompactNumber(videos.length)}</small>
+                  <small>{formatCompactNumber(totalVideoCount ?? videos.length)}</small>
                 </button>
                 <div className="mobile-category-drawer__label">Popular topics</div>
                 <div className="mobile-category-drawer__list">
