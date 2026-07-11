@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { fetchPublicVideo } from '@/lib/publicVideo';
 import { getSiteUrl, getVideoPagePath } from '@/lib/site';
@@ -91,16 +90,12 @@ export default async function VideoPage({ params }: VideoPageProps) {
   }).replace(/</g, '\\u003c');
 
   return (
-    <main className="video-page page-shell">
+    <main className={`video-page page-shell${portrait ? ' video-page--portrait' : ''}`}>
       <script
         dangerouslySetInnerHTML={{ __html: structuredData }}
         type="application/ld+json"
       />
       <div className="video-page__shell">
-        <div className="video-page__breadcrumb">
-          <Link href="/">← Gallery</Link>
-        </div>
-
         <VideoPageExperience creator={creator} portrait={portrait} video={video} />
       </div>
     </main>

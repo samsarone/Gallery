@@ -326,6 +326,7 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [portraitDetailsOpen, setPortraitDetailsOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [comments, setComments] = useState<VideoComment[]>([]);
   const [commentsCursor, setCommentsCursor] = useState<string | null>(null);
@@ -386,6 +387,7 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
     const apply = () => {
       setIsMobile(media.matches);
       setCommentsOpen(!media.matches && !portrait);
+      if (media.matches) setPortraitDetailsOpen(false);
     };
     apply();
     media.addEventListener('change', apply);
@@ -499,13 +501,15 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
   }, [commentsOpen, isMobile]);
 
   useEffect(() => {
-    if (!commentsOpen) return;
+    if (!commentsOpen && !portraitDetailsOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && (portrait || isMobile)) setCommentsOpen(false);
+      if (event.key !== 'Escape' || (!portrait && !isMobile)) return;
+      setCommentsOpen(false);
+      setPortraitDetailsOpen(false);
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [commentsOpen, isMobile, portrait]);
+  }, [commentsOpen, isMobile, portrait, portraitDetailsOpen]);
 
   const toggleLike = async () => {
     if (!isAuthenticated || !authToken || isLiking) return;
@@ -617,6 +621,7 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
 
   const openComments = () => {
     setCommentsOpen(true);
+    if (portrait && !isMobile) setPortraitDetailsOpen(true);
     if (!portrait && !isMobile) {
       window.requestAnimationFrame(() => commentsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     }
@@ -776,7 +781,7 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
   const details = (
     <div className="video-page__body">
       <div className="video-page__eyebrow">{creator}</div>
-      {desktopSixteenNine ? (
+      {desktopSixteenNine || (portrait && !isMobile && portraitDetailsOpen) ? (
         <div className="video-page__title-row">
           <h1>{currentVideo.title}</h1>
           {titleActions}
@@ -814,10 +819,26 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
   );
 
   return (
-    <article className={`video-page__card video-watch${portrait ? ' video-watch--portrait' : ' video-watch--landscape'}${commentsOpen ? ' video-watch--comments-open' : ''}`}>
+    <article className={`video-page__card video-watch${portrait ? ' video-watch--portrait' : ' video-watch--landscape'}${commentsOpen ? ' video-watch--comments-open' : ''}${portraitDetailsOpen ? ' video-watch--portrait-details-open' : ''}`}>
       {portrait ? (
         <>
           <div className="video-watch__portrait-layout">
+            {!isMobile && !portraitDetailsOpen ? (
+              <button
+                aria-label="Open video details"
+                aria-expanded={portraitDetailsOpen}
+                className="video-watch__portrait-summary"
+                onClick={() => setPortraitDetailsOpen(true)}
+                type="button"
+              >
+                <span className="video-watch__portrait-summary-copy">
+                  <small>{creator}</small>
+                  <strong>{currentVideo.title}</strong>
+                  {currentVideo.description ? <span>{currentVideo.description}</span> : null}
+                  <em>View details <span aria-hidden="true">→</span></em>
+                </span>
+              </button>
+            ) : null}
             <div className="video-watch__portrait-player">
               <div className="video-page__media video-page__media--portrait">
                 <VideoPageMobileNav />
@@ -834,9 +855,40 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
                 {actionButtons}
               </div>
             </div>
-            {commentsOpen && !isMobile ? <aside className="video-comments-rail">{commentsPanel}</aside> : null}
+            {!isMobile ? (
+              <aside
+                aria-hidden={!portraitDetailsOpen}
+                className="video-watch__portrait-details"
+              >
+                {portraitDetailsOpen ? (
+                  <>
+                    <div className="video-watch__portrait-details-header">
+                      <span>Video details</span>
+                      <button
+                        aria-label="Close video details"
+                        onClick={() => {
+                          setCommentsOpen(false);
+                          setPortraitDetailsOpen(false);
+                        }}
+                        type="button"
+                      >
+                        <Icon name="close" size={19} />
+                      </button>
+                    </div>
+                    <div className="video-watch__portrait-details-scroll">
+                      {details}
+                      {commentsOpen ? (
+                        <div className="video-comments-inline video-watch__portrait-comments" ref={commentsSectionRef}>
+                          {commentsPanel}
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
+              </aside>
+            ) : null}
           </div>
-          {details}
+          {isMobile ? details : null}
         </>
       ) : (
         desktopSixteenNine ? (
