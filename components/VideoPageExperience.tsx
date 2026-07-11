@@ -1257,7 +1257,7 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
   );
 
   return (
-    <article className={`video-page__card video-watch${portrait ? ' video-watch--portrait' : ' video-watch--landscape'}${commentsOpen ? ' video-watch--comments-open' : ''}${portraitDetailsOpen ? ' video-watch--portrait-details-open' : ''}${immersiveMobile ? ' video-watch--mobile-immersive' : ''}${isMobile && isSixteenNine ? ' video-watch--mobile-16x9' : ''}${isMobile && isSixteenNine && mobileLandscape ? ' video-watch--mobile-landscape' : ''}`}>
+    <article className={`video-page__card video-watch${portrait ? ' video-watch--portrait' : ' video-watch--landscape'}${commentsOpen ? ' video-watch--comments-open' : ''}${portraitDetailsOpen ? ' video-watch--portrait-details-open' : ''}${immersiveMobile ? ' video-watch--mobile-immersive' : ''}${isMobile && isSixteenNine ? ' video-watch--mobile-16x9' : ''}${immersiveMobile && mobileLandscape ? ' video-watch--mobile-landscape' : ''}`}>
       {isMobile ? (
         immersiveMobile ? mobileImmersiveFeed : isSixteenNine ? mobileLandscapeView : (
           <>

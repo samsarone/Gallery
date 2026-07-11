@@ -5283,6 +5283,15 @@ a {
 
 @media (max-width: 767px) and (orientation: landscape),
   (max-width: 960px) and (max-height: 500px) and (orientation: landscape) {
+  body:has(.video-watch--mobile-landscape) .top-nav--video-page,
+  .video-watch--mobile-landscape .mobile-video-feed > .video-page-mobile-nav {
+    display: none;
+  }
+
+  .video-watch--mobile-landscape .mobile-video-feed__item > video {
+    object-fit: cover;
+  }
+
   .mobile-landscape-feed {
     height: 100dvh;
     inset: 0;
