@@ -15,6 +15,10 @@ The interface adapts the catalogue and player to the device and to each video's 
 
 <!-- Add one composite product image here when final screenshots are available: Gallery and video page, desktop and mobile. -->
 
+## Demo
+
+[Watch the 50-second desktop and mobile product demo](https://static.samsar.one/public/samsar-gallery-demo-50s.mp4).
+
 ## Features
 
 - **Fully responsive** — purpose-built layouts for desktop, mobile portrait, and mobile landscape, with dedicated experiences for `16:9`, `9:16`, and square videos.
