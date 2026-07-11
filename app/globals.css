@@ -5333,6 +5333,20 @@ a {
   .video-watch--mobile-16x9:not(.video-watch--mobile-landscape) .mobile-landscape-view__primary {
     padding-top: clamp(18px, 3dvh, 26px);
   }
+
+  .video-watch--mobile-16x9:not(.video-watch--mobile-landscape) .mobile-video-actions--row {
+    margin-bottom: 8px;
+    margin-top: 21px;
+    padding-top: 17px;
+  }
+
+  .video-watch--mobile-16x9:not(.video-watch--mobile-landscape) .mobile-recommendation-card > a {
+    grid-template-columns: clamp(98px, 28vw, 110px) minmax(0, 1fr);
+  }
+
+  .video-watch--mobile-16x9:not(.video-watch--mobile-landscape) .mobile-recommendation-card + .mobile-recommendation-card {
+    margin-top: 7px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
