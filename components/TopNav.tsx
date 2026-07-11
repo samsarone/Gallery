@@ -67,6 +67,7 @@ export default function TopNav() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const isVideoPage = pathname.startsWith('/video/');
+  const isGalleryLandingPage = pathname === '/';
 
   const performAuthCheck = useCallback(async () => {
     const token = getExistingAuthToken();
@@ -416,11 +417,27 @@ export default function TopNav() {
         ref={navRef}
       >
         <div className="top-nav__container">
-          <Link className="top-nav__brand" href="/" aria-label="Samsar Gallery home">
-            <span className="top-nav__brand-lockup">
-              <span className="top-nav__brand-title">The Gallery</span>
-            </span>
-          </Link>
+          <div className="top-nav__leading">
+            {isGalleryLandingPage ? (
+              <button
+                aria-controls="mobile-category-drawer"
+                aria-haspopup="dialog"
+                aria-label="Open video categories"
+                className="top-nav__category-toggle"
+                onClick={() => window.dispatchEvent(new Event('samsar:open-mobile-categories'))}
+                type="button"
+              >
+                <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+                  <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+                </svg>
+              </button>
+            ) : null}
+            <Link className="top-nav__brand" href="/" aria-label="Samsar Gallery home">
+              <span className="top-nav__brand-lockup">
+                <span className="top-nav__brand-title">The Gallery</span>
+              </span>
+            </Link>
+          </div>
 
           <form className="top-nav-search" onSubmit={handleSearchSubmit} ref={searchRef} role="search">
             <input

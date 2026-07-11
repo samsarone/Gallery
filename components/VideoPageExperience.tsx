@@ -338,7 +338,6 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
   const [mobileDescriptionOpen, setMobileDescriptionOpen] = useState(false);
   const [mobileDescriptionVideo, setMobileDescriptionVideo] = useState<PublishedVideo | null>(null);
   const [mobileLandscape, setMobileLandscape] = useState(false);
-  const [mobileFeedStarted, setMobileFeedStarted] = useState(false);
   const [activeMobileFeedId, setActiveMobileFeedId] = useState(video.id);
   const [isMobile, setIsMobile] = useState(false);
   const [comments, setComments] = useState<VideoComment[]>([]);
@@ -360,6 +359,8 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
   const mobileFeedRef = useRef<HTMLDivElement>(null);
   const mobileFeedItemRefs = useRef<Record<string, HTMLElement | null>>({});
   const mobileFeedVideoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
+  const manuallyPausedVideoIdsRef = useRef<Set<string>>(new Set());
+  const autoplayMutedVideoIdsRef = useRef<Set<string>>(new Set());
   const shareMenuRef = useRef<HTMLDivElement>(null);
   const isAuthenticated = authReady && Boolean(authToken && user);
   const aspectRatio = aspectRatioNumber(currentVideo.aspectRatio);
@@ -434,7 +435,8 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
 
   useEffect(() => {
     setActiveMobileFeedId(video.id);
-    setMobileFeedStarted(false);
+    manuallyPausedVideoIdsRef.current.clear();
+    autoplayMutedVideoIdsRef.current.clear();
     setMobileDescriptionOpen(false);
     setMobileDescriptionVideo(null);
   }, [video.id]);
@@ -588,25 +590,26 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
 
   useEffect(() => {
     if (!isMobile) return;
-    const shouldAutoplay = !immersiveMobile || mobileFeedStarted;
     Object.entries(mobileFeedVideoRefs.current).forEach(([id, element]) => {
       if (!element) return;
-      if (id !== activeMobileFeedId || !shouldAutoplay) {
+      if (id !== activeMobileFeedId) {
         element.pause();
         return;
       }
 
-      element.muted = !immersiveMobile;
-      void element.play().catch(() => {
-        if (immersiveMobile && id === currentVideo.id) {
-          element.muted = false;
-          return;
-        }
-        element.muted = true;
-        void element.play().catch(() => undefined);
-      });
+      element.muted = autoplayMutedVideoIdsRef.current.has(id) || (
+        !immersiveMobile && id !== currentVideo.id
+      );
+      if (!manuallyPausedVideoIdsRef.current.has(id)) {
+        void element.play().catch(() => {
+          if (manuallyPausedVideoIdsRef.current.has(id)) return;
+          autoplayMutedVideoIdsRef.current.add(id);
+          element.muted = true;
+          void element.play().catch(() => undefined);
+        });
+      }
     });
-  }, [activeMobileFeedId, currentVideo.id, immersiveMobile, isMobile, mobileFeedIds, mobileFeedStarted]);
+  }, [activeMobileFeedId, currentVideo.id, immersiveMobile, isMobile, mobileFeedIds]);
 
   useEffect(() => {
     if (!commentsOpen && !portraitDetailsOpen && !mobileDescriptionOpen) return;
@@ -754,13 +757,33 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
     setMobileDescriptionOpen(true);
   };
 
-  const startImmersivePlayback = (id: string) => {
+  const autoplayVideo = (element: HTMLVideoElement, id?: string) => {
+    void element.play().catch(() => {
+      if (id && manuallyPausedVideoIdsRef.current.has(id)) return;
+      if (id) autoplayMutedVideoIdsRef.current.add(id);
+      element.muted = true;
+      void element.play().catch(() => undefined);
+    });
+  };
+
+  const togglePlayback = (element: HTMLVideoElement, id?: string) => {
+    if (element.paused || element.ended) {
+      if (id) manuallyPausedVideoIdsRef.current.delete(id);
+      if (id) autoplayMutedVideoIdsRef.current.delete(id);
+      element.muted = false;
+      autoplayVideo(element, id);
+      return;
+    }
+
+    if (id) manuallyPausedVideoIdsRef.current.add(id);
+    element.pause();
+  };
+
+  const toggleImmersivePlayback = (id: string) => {
     const element = mobileFeedVideoRefs.current[id];
     if (!element) return;
     setActiveMobileFeedId(id);
-    setMobileFeedStarted(true);
-    element.muted = false;
-    void element.play().catch(() => undefined);
+    togglePlayback(element, id);
   };
 
   const advanceMobileFeed = (id: string) => {
@@ -868,14 +891,16 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
             ref={(element) => { mobileFeedItemRefs.current[item.id] = element; }}
           >
             <video
-              autoPlay={mobileFeedStarted && isActive}
-              muted={!mobileFeedStarted}
+              autoPlay={isActive}
               onCanPlay={(event) => {
-                if (!mobileFeedStarted || item.id !== activeMobileFeedId) return;
+                if (
+                  item.id !== activeMobileFeedId ||
+                  manuallyPausedVideoIdsRef.current.has(item.id)
+                ) return;
                 event.currentTarget.muted = false;
-                void event.currentTarget.play().catch(() => undefined);
+                autoplayVideo(event.currentTarget, item.id);
               }}
-              onClick={() => startImmersivePlayback(item.id)}
+              onClick={() => toggleImmersivePlayback(item.id)}
               onEnded={() => advanceMobileFeed(item.id)}
               playsInline
               poster={item.posterUrl}
@@ -884,17 +909,6 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
               src={item.videoUrl}
             />
             <span className="mobile-video-feed__shade" aria-hidden="true" />
-            {!mobileFeedStarted && isPrimary ? (
-              <button
-                aria-label="Play video with sound"
-                className="mobile-video-feed__play"
-                onClick={() => startImmersivePlayback(item.id)}
-                type="button"
-              >
-                <Icon name="play" size={28} />
-                <span>Tap to play</span>
-              </button>
-            ) : null}
             <div className="mobile-video-feed__title">
               <small>{itemCreator}</small>
               {isPrimary ? (
@@ -922,7 +936,15 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
           <video
             autoPlay
             controls
-            muted
+            onCanPlay={(event) => {
+              if (manuallyPausedVideoIdsRef.current.has(currentVideo.id)) return;
+              event.currentTarget.muted = false;
+              autoplayVideo(event.currentTarget, currentVideo.id);
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              togglePlayback(event.currentTarget, currentVideo.id);
+            }}
             onEnded={() => advanceMobileFeed(currentVideo.id)}
             playsInline
             poster={currentVideo.posterUrl}
@@ -1132,7 +1154,23 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
   const landscapeMedia = (
     <div className="video-page__media">
       <VideoPageMobileNav />
-      <video controls playsInline poster={currentVideo.posterUrl} preload="metadata" src={currentVideo.videoUrl} />
+      <video
+        autoPlay
+        controls
+        onCanPlay={(event) => {
+          if (manuallyPausedVideoIdsRef.current.has(currentVideo.id)) return;
+          event.currentTarget.muted = false;
+          autoplayVideo(event.currentTarget, currentVideo.id);
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          togglePlayback(event.currentTarget, currentVideo.id);
+        }}
+        playsInline
+        poster={currentVideo.posterUrl}
+        preload="auto"
+        src={currentVideo.videoUrl}
+      />
     </div>
   );
 
@@ -1213,10 +1251,18 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
                   autoPlay
                   controls
                   loop
-                  muted
+                  onCanPlay={(event) => {
+                    if (manuallyPausedVideoIdsRef.current.has(currentVideo.id)) return;
+                    event.currentTarget.muted = false;
+                    autoplayVideo(event.currentTarget, currentVideo.id);
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    togglePlayback(event.currentTarget, currentVideo.id);
+                  }}
                   playsInline
                   poster={currentVideo.posterUrl}
-                  preload="metadata"
+                  preload="auto"
                   src={currentVideo.videoUrl}
                 />
                 {actionButtons}

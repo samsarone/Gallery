@@ -22,6 +22,7 @@ import { getExistingAuthToken } from '@/lib/auth';
 import { getVideoPagePath } from '@/lib/site';
 
 const PAGE_SIZE = 48;
+const MOBILE_CATEGORY_ANIMATION_MS = 240;
 type MobilePlaybackMode = 'portrait' | 'landscape';
 let embeddingRefreshRequested = false;
 
@@ -494,11 +495,6 @@ function GallerySkeletonCard({ format }: { format: 'landscape' | 'portrait' }) {
 function GallerySkeleton() {
   return (
     <div className="library-loading" aria-label="Loading video library">
-      <div className="library-loading__mobile-bar" aria-hidden="true">
-        <span className="library-loading__mobile-bar-item" />
-        <span className="library-loading__mobile-bar-item library-loading__mobile-bar-item--crumb" />
-      </div>
-
       <aside className="library-loading__nav" aria-hidden="true">
         <div className="library-loading__nav-intro">
           <span className="library-loading__nav-line library-loading__nav-line--eyebrow" />
@@ -567,6 +563,7 @@ export default function VideoGallery({
   const [searchResults, setSearchResults] = useState<PublishedVideo[] | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [mobileCategoryOpen, setMobileCategoryOpen] = useState(false);
+  const [mobileCategoryClosing, setMobileCategoryClosing] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [homeRecommendations, setHomeRecommendations] = useState<PublishedVideo[]>([]);
   const [homeRecommendationsReady, setHomeRecommendationsReady] = useState(false);
@@ -590,12 +587,30 @@ export default function VideoGallery({
   const mobileViewStartedRef = useRef<Set<string>>(new Set());
   const mobileProgressReportedRef = useRef<Set<string>>(new Set());
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mobileCategoryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToast(null), 2600);
   }, []);
+
+  const openMobileCategories = useCallback(() => {
+    if (mobileCategoryTimerRef.current) clearTimeout(mobileCategoryTimerRef.current);
+    setMobileCategoryClosing(false);
+    setMobileCategoryOpen(true);
+  }, []);
+
+  const closeMobileCategories = useCallback(() => {
+    if (!mobileCategoryOpen || mobileCategoryClosing) return;
+    setMobileCategoryClosing(true);
+    if (mobileCategoryTimerRef.current) clearTimeout(mobileCategoryTimerRef.current);
+    mobileCategoryTimerRef.current = setTimeout(() => {
+      setMobileCategoryOpen(false);
+      setMobileCategoryClosing(false);
+      mobileCategoryTimerRef.current = null;
+    }, MOBILE_CATEGORY_ANIMATION_MS);
+  }, [mobileCategoryClosing, mobileCategoryOpen]);
 
   const markVideoUnavailable = useCallback((id: string) => {
     setUnavailableVideoIds((current) => {
@@ -647,6 +662,7 @@ export default function VideoGallery({
     void loadVideos();
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      if (mobileCategoryTimerRef.current) clearTimeout(mobileCategoryTimerRef.current);
     };
   }, [loadVideos]);
 
@@ -673,13 +689,21 @@ export default function VideoGallery({
   }, [mobileCategoryOpen]);
 
   useEffect(() => {
+    const handleOpenMobileCategories = () => {
+      if (isMobile) openMobileCategories();
+    };
+    window.addEventListener('samsar:open-mobile-categories', handleOpenMobileCategories);
+    return () => window.removeEventListener('samsar:open-mobile-categories', handleOpenMobileCategories);
+  }, [isMobile, openMobileCategories]);
+
+  useEffect(() => {
     if (!mobileCategoryOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMobileCategoryOpen(false);
+      if (event.key === 'Escape') closeMobileCategories();
     };
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [mobileCategoryOpen]);
+  }, [closeMobileCategories, mobileCategoryOpen]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(
@@ -1284,7 +1308,7 @@ export default function VideoGallery({
 
   const selectCategory = useCallback((category: string | null) => {
     setSelectedCategory(category);
-    setMobileCategoryOpen(false);
+    closeMobileCategories();
     setSelectedVideo(null);
     const url = new URL(window.location.href);
     if (category) {
@@ -1293,7 +1317,7 @@ export default function VideoGallery({
       url.searchParams.delete('category');
     }
     window.history.pushState({}, '', url);
-  }, []);
+  }, [closeMobileCategories]);
 
   const selectedCurrent = selectedVideo
     ? videos.find((video) => video.id === selectedVideo.id) ?? selectedVideo
@@ -1601,45 +1625,33 @@ export default function VideoGallery({
 
       {!searchMode && isMobile && !mobilePlaybackMode && (
         <>
-          <div className="mobile-category-bar">
-            <button
-              aria-expanded={mobileCategoryOpen}
-              aria-label="Open video categories"
-              className="mobile-category-bar__trigger"
-              onClick={() => setMobileCategoryOpen(true)}
-              type="button"
-            >
-              <Icon name="menu" size={18} />
-              <span>Categories</span>
-            </button>
-            <div className="mobile-category-bar__breadcrumb" aria-label="Breadcrumb">
-              <button onClick={() => selectCategory(null)} type="button">Home</button>
-              <span aria-hidden="true">/</span>
-              <strong>{selectedCategoryItem?.name ?? 'All videos'}</strong>
-            </div>
-          </div>
-
           {mobileCategoryOpen && (
             <>
               <button
                 aria-label="Close video categories"
-                className="mobile-category-scrim"
-                onClick={() => setMobileCategoryOpen(false)}
+                className={`mobile-category-scrim${mobileCategoryClosing ? ' is-closing' : ''}`}
+                onClick={closeMobileCategories}
                 type="button"
               />
-              <aside aria-label="Browse video categories" aria-modal="true" className="mobile-category-drawer" role="dialog">
+              <aside
+                aria-label="Browse video categories"
+                aria-modal="true"
+                className={`mobile-category-drawer${mobileCategoryClosing ? ' is-closing' : ''}`}
+                id="mobile-category-drawer"
+                role="dialog"
+              >
                 <div className="mobile-category-drawer__header">
                   <div>
                     <span>Browse</span>
                     <strong>Video categories</strong>
                   </div>
                   <button
-                    aria-label="Close video categories"
+                    aria-label="Collapse video categories"
                     className="mobile-category-drawer__close"
-                    onClick={() => setMobileCategoryOpen(false)}
+                    onClick={closeMobileCategories}
                     type="button"
                   >
-                    <Icon name="close" size={18} />
+                    <Icon name="arrow" size={18} />
                   </button>
                 </div>
                 <button
