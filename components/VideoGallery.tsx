@@ -23,6 +23,7 @@ import {
   parseVideoCollection
 } from '@/lib/videos';
 import { getExistingAuthToken } from '@/lib/auth';
+import { recordGalleryViewEvent } from '@/lib/galleryViews';
 import { getVideoPagePath } from '@/lib/site';
 
 const PUBLICATION_PAGE_SIZE = 100;
@@ -1390,24 +1391,17 @@ export default function VideoGallery({
       watchTimeMs: number,
       durationMs: number
     ) => {
-      void fetch('/api/gallery/view', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          publicationId: video.id,
-          eventType,
-          watchTimeMs: Number.isFinite(watchTimeMs) ? Math.round(watchTimeMs) : 0,
-          durationMs: Number.isFinite(durationMs) ? Math.round(durationMs) : 0,
-          source: isMobile ? 'gallery_mobile' : 'gallery_desktop',
-          metadata: { format: isPortraitVideo(video) ? 'portrait' : 'landscape' }
-        }),
-        keepalive: true
+      void recordGalleryViewEvent({
+        publicationId: video.id,
+        eventType,
+        watchTimeMs,
+        durationMs,
+        source: isMobile ? 'gallery_mobile' : 'gallery_desktop',
+        metadata: { format: isPortraitVideo(video) ? 'portrait' : 'landscape' },
+        authToken: getExistingAuthToken()
       })
-        .then(async (response) => {
-          if (!response.ok) return;
-          const payload = await response.json();
-          const views = payload?.stats?.views;
-          if (typeof views !== 'number') return;
+        .then((views) => {
+          if (views === null) return;
           setVideos((current) =>
             current.map((item) =>
               item.id === video.id

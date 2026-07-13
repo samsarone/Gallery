@@ -14,6 +14,7 @@ import {
 import VideoPageMobileNav from './VideoPageMobileNav';
 import { getExistingAuthToken, verifyAuthToken } from '@/lib/auth';
 import { normalizeComment, parseCommentsPayload } from '@/lib/comments';
+import { recordGalleryViewEvent, type GalleryViewEventType } from '@/lib/galleryViews';
 import type {
   AuthenticatedUser,
   PublishedVideo,
@@ -24,6 +25,7 @@ import {
   aspectRatioNumber,
   formatCompactNumber,
   formatPublishedDate,
+  isPortraitVideo,
   normalizeVideo,
   parseVideoCollection
 } from '@/lib/videos';
@@ -409,6 +411,8 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
   const mobileFeedVideoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const manuallyPausedVideoIdsRef = useRef<Set<string>>(new Set());
   const autoplayMutedVideoIdsRef = useRef<Set<string>>(new Set());
+  const viewStartedVideoIdsRef = useRef<Set<string>>(new Set());
+  const progressReportedVideoIdsRef = useRef<Set<string>>(new Set());
   const shareMenuRef = useRef<HTMLDivElement>(null);
   const isAuthenticated = authReady && Boolean(authToken && user);
   const aspectRatio = aspectRatioNumber(currentVideo.aspectRatio);
@@ -432,6 +436,66 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
     setToast(message);
     window.setTimeout(() => setToast(null), 2600);
   }, []);
+
+  const sendViewEvent = useCallback((
+    targetVideo: PublishedVideo,
+    eventType: GalleryViewEventType,
+    element: HTMLVideoElement
+  ) => {
+    void recordGalleryViewEvent({
+      publicationId: targetVideo.id,
+      eventType,
+      watchTimeMs: element.currentTime * 1000,
+      durationMs: element.duration * 1000,
+      source: isMobile ? 'video_page_mobile' : 'video_page_desktop',
+      metadata: { format: isPortraitVideo(targetVideo) ? 'portrait' : 'landscape' },
+      authToken: getExistingAuthToken()
+    })
+      .then((views) => {
+        if (views === null) return;
+        setCurrentVideo((previous) => previous.id === targetVideo.id ? ({
+          ...previous,
+          stats: { ...previous.stats, views }
+        }) : previous);
+        setRecommendations((previous) => previous.map((item) => item.id === targetVideo.id ? ({
+          ...item,
+          stats: { ...item.stats, views }
+        }) : item));
+      })
+      .catch(() => undefined);
+  }, [isMobile]);
+
+  const handleVideoPlaying = useCallback((
+    targetVideo: PublishedVideo,
+    element: HTMLVideoElement
+  ) => {
+    if (viewStartedVideoIdsRef.current.has(targetVideo.id)) return;
+    viewStartedVideoIdsRef.current.add(targetVideo.id);
+    sendViewEvent(targetVideo, 'view', element);
+  }, [sendViewEvent]);
+
+  const handleVideoProgress = useCallback((
+    targetVideo: PublishedVideo,
+    element: HTMLVideoElement
+  ) => {
+    if (
+      progressReportedVideoIdsRef.current.has(targetVideo.id) ||
+      !Number.isFinite(element.duration) ||
+      element.duration <= 0 ||
+      element.currentTime / element.duration < 0.5
+    ) {
+      return;
+    }
+    progressReportedVideoIdsRef.current.add(targetVideo.id);
+    sendViewEvent(targetVideo, 'progress', element);
+  }, [sendViewEvent]);
+
+  const handleVideoEnded = useCallback((
+    targetVideo: PublishedVideo,
+    element: HTMLVideoElement
+  ) => {
+    sendViewEvent(targetVideo, 'complete', element);
+  }, [sendViewEvent]);
 
   const refreshAuth = useCallback(async () => {
     const token = getExistingAuthToken();
@@ -949,7 +1013,12 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
                 autoplayVideo(event.currentTarget, item.id);
               }}
               onClick={() => toggleImmersivePlayback(item.id)}
-              onEnded={() => advanceMobileFeed(item.id)}
+              onEnded={(event) => {
+                handleVideoEnded(item, event.currentTarget);
+                advanceMobileFeed(item.id);
+              }}
+              onPlaying={(event) => handleVideoPlaying(item, event.currentTarget)}
+              onTimeUpdate={(event) => handleVideoProgress(item, event.currentTarget)}
               playsInline
               poster={item.posterUrl}
               preload={isPrimary ? 'auto' : 'metadata'}
@@ -993,7 +1062,12 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
               event.preventDefault();
               togglePlayback(event.currentTarget, currentVideo.id);
             }}
-            onEnded={() => advanceMobileFeed(currentVideo.id)}
+            onEnded={(event) => {
+              handleVideoEnded(currentVideo, event.currentTarget);
+              advanceMobileFeed(currentVideo.id);
+            }}
+            onPlaying={(event) => handleVideoPlaying(currentVideo, event.currentTarget)}
+            onTimeUpdate={(event) => handleVideoProgress(currentVideo, event.currentTarget)}
             playsInline
             poster={currentVideo.posterUrl}
             preload="auto"
@@ -1206,6 +1280,9 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
           event.preventDefault();
           togglePlayback(event.currentTarget, currentVideo.id);
         }}
+        onEnded={(event) => handleVideoEnded(currentVideo, event.currentTarget)}
+        onPlaying={(event) => handleVideoPlaying(currentVideo, event.currentTarget)}
+        onTimeUpdate={(event) => handleVideoProgress(currentVideo, event.currentTarget)}
         playsInline
         poster={currentVideo.posterUrl}
         preload="auto"
@@ -1300,6 +1377,9 @@ export default function VideoPageExperience({ creator, portrait, video }: VideoP
                     event.preventDefault();
                     togglePlayback(event.currentTarget, currentVideo.id);
                   }}
+                  onEnded={(event) => handleVideoEnded(currentVideo, event.currentTarget)}
+                  onPlaying={(event) => handleVideoPlaying(currentVideo, event.currentTarget)}
+                  onTimeUpdate={(event) => handleVideoProgress(currentVideo, event.currentTarget)}
                   playsInline
                   poster={currentVideo.posterUrl}
                   preload="auto"
